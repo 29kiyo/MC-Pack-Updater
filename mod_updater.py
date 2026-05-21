@@ -15,7 +15,7 @@ MODRINTH_API   = "https://api.modrinth.com/v2"
 CURSEFORGE_API = "https://api.curseforge.com/v1"
 CONFIG_FILE    = os.path.join(os.path.expanduser("~"), ".mc_mod_updater_config.json")
 
-MC_VERSIONS = [
+MC_VERSIONS_FALLBACK = [
     "1.21.4","1.21.3","1.21.1","1.21",
     "1.20.6","1.20.4","1.20.2","1.20.1","1.20",
     "1.19.4","1.19.3","1.19.2","1.19.1","1.19",
@@ -24,6 +24,21 @@ MC_VERSIONS = [
     "1.16.5","1.16.4","1.16.3","1.16.2","1.16.1",
     "1.15.2","1.12.2",
 ]
+
+def fetch_mc_versions():
+    """ModrinthのAPIからリリース済みMCバージョン一覧を取得する"""
+    try:
+        import re
+        data = http_get(f"{MODRINTH_API}/tag/game_version")
+        # type=="release" のみ、バージョン番号でソート（新しい順）
+        releases = [v["version"] for v in data if v.get("version_type") == "release"]
+        def ver_key(v):
+            parts = re.split(r"[.\-]", v)
+            return tuple(int(x) if x.isdigit() else 0 for x in parts)
+        releases.sort(key=ver_key, reverse=True)
+        return releases if releases else MC_VERSIONS_FALLBACK
+    except Exception:
+        return MC_VERSIONS_FALLBACK
 LOADERS = ["fabric", "forge", "neoforge", "quilt"]
 
 # ダウンロードモード
@@ -235,6 +250,9 @@ class App(tk.Tk):
         # 終了時に設定保存
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
+        # 起動後にバックグラウンドでMCバージョン一覧を取得
+        threading.Thread(target=self._fetch_versions_bg, daemon=True).start()
+
     # ── スタイル ──
     def _apply_style(self):
         s = ttk.Style(self)
@@ -314,9 +332,12 @@ class App(tk.Tk):
         lf2.pack(fill="x", pady=(0,10))
         row2 = ttk.Frame(lf2); row2.pack(fill="x", padx=10, pady=8)
         ttk.Label(row2, text="MCバージョン:").pack(side="left")
-        ttk.Combobox(row2, textvariable=self.target_version,
-                      values=MC_VERSIONS, width=13, state="readonly").pack(
-            side="left", padx=(4,24))
+        self._ver_cb = ttk.Combobox(row2, textvariable=self.target_version,
+                      values=MC_VERSIONS_FALLBACK, width=13, state="readonly")
+        self._ver_cb.pack(side="left", padx=(4,24))
+        self._ver_status = ttk.Label(row2, text="🔄 取得中...", foreground=YEL,
+                                      background=BG, font=("Segoe UI", 8))
+        self._ver_status.pack(side="left")
         ttk.Label(row2, text="Mod Loader:").pack(side="left")
         ttk.Combobox(row2, textvariable=self.target_loader,
                       values=LOADERS, width=13, state="readonly").pack(
@@ -638,6 +659,17 @@ class App(tk.Tk):
             msg += "\n\n手動DLが必要なMod:\n" + "\n".join(f"• {n}" for n,_ in fail_list)
         self.after(0, lambda: messagebox.showinfo("完了", msg))
         self.after(0, lambda: self._start_btn.config(state="normal"))
+
+    # ── MCバージョン一覧をバックグラウンド取得 ──
+    def _fetch_versions_bg(self):
+        versions = fetch_mc_versions()
+        def _update():
+            self._ver_cb.config(values=versions)
+            # 保存済みバージョンがリストにあればそのまま、なければ先頭を選択
+            if self.target_version.get() not in versions:
+                self.target_version.set(versions[0])
+            self._ver_status.config(text=f"✅ {len(versions)} 件", foreground=GRN)
+        self.after(0, _update)
 
     # ── 終了処理 ──
     def _on_close(self):
