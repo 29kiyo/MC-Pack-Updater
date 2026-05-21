@@ -670,10 +670,15 @@ class App(tk.Tk):
     def _fetch_versions_bg(self):
         versions = fetch_mc_versions()
         def _update():
+            current = self.target_version.get()
             self._ver_cb.config(values=versions)
-            # 保存済みバージョンがリストにあればそのまま、なければ先頭を選択
-            if self.target_version.get() not in versions:
+            # 保存済みバージョンがリストにあればそのまま復元、なければ先頭を選択
+            if current in versions:
+                self.target_version.set(current)
+                self._ver_cb.set(current)
+            else:
                 self.target_version.set(versions[0])
+                self._ver_cb.set(versions[0])
             self._ver_status.config(text=f"✅ {len(versions)} 件", foreground=GRN)
         self.after(0, _update)
 
