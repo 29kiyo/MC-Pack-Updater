@@ -217,14 +217,14 @@ def download_file(url, dest_path, progress_cb=None):
 # ══════════════════════════════════════════════════════════
 # GUI
 # ══════════════════════════════════════════════════════════
-BG   = "#1e1e2e"
-BG2  = "#2a2a3e"
-BG3  = "#313244"
-FG   = "#cdd6f4"
-ACC  = "#89b4fa"
-GRN  = "#a6e3a1"
-RED  = "#f38ba8"
-YEL  = "#f9e2af"
+BG   = "#f4f4f0"
+BG2  = "#e8e8e3"
+BG3  = "#d0d0c8"
+FG   = "#1e1e1e"
+ACC  = "#1d4ed8"
+GRN  = "#15803d"
+RED  = "#dc2626"
+YEL  = "#92400e"
 
 class App(tk.Tk):
     def __init__(self):
@@ -263,17 +263,23 @@ class App(tk.Tk):
         s.configure("Sub.TLabel",      background=BG, foreground=FG,  font=("Segoe UI", 9))
         s.configure("TButton",         background=ACC, foreground=BG,
                      font=("Segoe UI", 10, "bold"), relief="flat", padding=(8,5))
-        s.map("TButton",               background=[("active","#74c7ec"),("disabled",BG3)],
-                                       foreground=[("disabled","#585b70")])
+        s.map("TButton",               background=[("active","#3b82f6"),("disabled",BG3)],
+                                       foreground=[("disabled","#9ca3af")])
         s.configure("Red.TButton",     background=RED, foreground=BG,
                      font=("Segoe UI", 10, "bold"), relief="flat", padding=(8,5))
-        s.map("Red.TButton",           background=[("active","#eba0ac")])
+        s.map("Red.TButton",           background=[("active","#ef4444")])
         s.configure("TEntry",          fieldbackground=BG2, foreground=FG,
                      insertcolor=FG, relief="flat", padding=4)
         s.configure("TCheckbutton",    background=BG, foreground=FG, font=("Segoe UI", 10))
         s.map("TCheckbutton",          background=[("active",BG)])
         s.configure("TCombobox",       fieldbackground=BG2, foreground=FG,
                      selectbackground=BG2, selectforeground=FG, padding=4)
+        # readonly状態で選択値が消えないよう明示指定
+        s.map("TCombobox",
+              fieldbackground=[("readonly", BG2), ("disabled", BG3)],
+              foreground=[("readonly", FG), ("disabled", "#9ca3af")],
+              selectbackground=[("readonly", BG2)],
+              selectforeground=[("readonly", FG)])
         s.configure("Treeview",        background=BG2, foreground=FG,
                      fieldbackground=BG2, rowheight=26, font=("Segoe UI", 9))
         s.configure("Treeview.Heading",background=BG,  foreground=ACC,
@@ -421,7 +427,7 @@ class App(tk.Tk):
     # ── Tab: ログ ──
     def _build_tab_log(self, p):
         self._log_box = scrolledtext.ScrolledText(
-            p, bg="#181825", fg=FG, insertbackground=FG,
+            p, bg="#ffffff", fg=FG, insertbackground=FG,
             font=("Consolas", 9), relief="flat", wrap="word"
         )
         self._log_box.pack(fill="both", expand=True, padx=8, pady=8)
@@ -444,13 +450,8 @@ class App(tk.Tk):
         self._mode_desc.config(text=f"  ℹ {desc}")
         need_cf = mode in (DL_MODE_BOTH, DL_MODE_CURSEFORGE)
         state = "normal" if need_cf else "disabled"
-        # 選択値を退避してからstate変更 → 復元（stateの変更で選択が消えるのを防ぐ）
-        ver = self.target_version.get()
-        ldr = self.target_loader.get()
         self._cf_entry.config(state=state)
         self._cf_show_btn.config(state=state)
-        self.target_version.set(ver)
-        self.target_loader.set(ldr)
 
     def _toggle_cf_show(self):
         self._cf_key_showing = not self._cf_key_showing
