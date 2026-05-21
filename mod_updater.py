@@ -671,15 +671,21 @@ class App(tk.Tk):
         versions = fetch_mc_versions()
         def _update():
             current = self.target_version.get()
-            self._ver_cb.config(values=versions)
-            # 保存済みバージョンがリストにあればそのまま復元、なければ先頭を選択
+            # values を更新
+            self._ver_cb["values"] = versions
+            # 選択を復元
             if current in versions:
-                self.target_version.set(current)
                 self._ver_cb.set(current)
             else:
-                self.target_version.set(versions[0])
                 self._ver_cb.set(versions[0])
-            self._ver_status.config(text=f"✅ {len(versions)} 件", foreground=GRN)
+            self.target_version.set(self._ver_cb.get())
+            is_fallback = (versions == MC_VERSIONS_FALLBACK)
+            if is_fallback:
+                self._ver_status.config(text="⚠ オフライン（固定リスト）", foreground=YEL)
+                self._log("⚠ MCバージョン取得失敗 → フォールバックリストを使用", "warn")
+            else:
+                self._ver_status.config(text=f"✅ {len(versions)} 件", foreground=GRN)
+                self._log(f"✅ MCバージョン {len(versions)} 件を取得しました（最新: {versions[0]}）", "ok")
         self.after(0, _update)
 
     # ── 終了処理 ──
