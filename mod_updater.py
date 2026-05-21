@@ -244,8 +244,8 @@ class App(tk.Tk):
         self.delete_old      = tk.BooleanVar(value=cfg.get("delete_old", False))
 
         self.mod_list = []
+        self._apply_style()   # スタイルを先に適用してからUI構築
         self._build_ui()
-        self._apply_style()
 
         # 終了時に設定保存
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -444,8 +444,13 @@ class App(tk.Tk):
         self._mode_desc.config(text=f"  ℹ {desc}")
         need_cf = mode in (DL_MODE_BOTH, DL_MODE_CURSEFORGE)
         state = "normal" if need_cf else "disabled"
+        # 選択値を退避してからstate変更 → 復元（stateの変更で選択が消えるのを防ぐ）
+        ver = self.target_version.get()
+        ldr = self.target_loader.get()
         self._cf_entry.config(state=state)
         self._cf_show_btn.config(state=state)
+        self.target_version.set(ver)
+        self.target_loader.set(ldr)
 
     def _toggle_cf_show(self):
         self._cf_key_showing = not self._cf_key_showing
