@@ -38,6 +38,23 @@ MR_MOD    = "mod"
 MR_RP     = "resourcepack"
 MR_SHADE  = "shader"
 
+def clean_name(raw_name):
+    """ファイル名からバージョン番号・MC バージョン等を除去して検索用名前を返す。
+    例: '3D items_1.20' -> '3D items'
+        'SomeShader v2.1 MC1.20.1' -> 'SomeShader'
+    """
+    name = raw_name
+    # MC1.x / for1.x 形式（MCプレフィックス付き）を先に削除
+    name = re.sub(r'[\s_\-\.]+(mc|for|fabric|forge|neoforge|quilt)\d+[\.\d]*$',
+                  '', name, flags=re.IGNORECASE)
+    # _v2.1 / -v5.1 / v2.1 のようなバージョン番号を削除
+    name = re.sub(r'[\s_\-\.]+v\d+[\.\d]*[a-zA-Z]*$', '', name, flags=re.IGNORECASE)
+    # _1.20 / -1.19.2 / 1.20.1 のような数字バージョンを削除
+    name = re.sub(r'[\s_\-\.]+\d+\.\d+[\.\d]*[a-zA-Z]*$', '', name, flags=re.IGNORECASE)
+    # 末尾の記号を整理
+    name = name.strip(" _-.")
+    return name if name else raw_name
+
 # ── カラー ────────────────────────────────────────────────────
 BG  = "#f4f4f0"
 BG2 = "#e8e8e3"
@@ -310,10 +327,12 @@ class FileListPanel(ttk.Frame):
         for i, it in enumerate(self.items):
             tag = "even" if i%2==0 else "odd"
             iid = it["filename"]
-            vals = (("☑", it.get("name",iid), it.get("mod_id","?"),
+            # 表示名: display_name があればそちらを優先（RP/Shaderの元ファイル名）
+            display = it.get("display_name") or it.get("name", iid)
+            vals = (("☑", display, it.get("mod_id","?"),
                      it.get("version","?"), it.get("loader","?"))
                     if self.mr_type == MR_MOD else
-                    ("☑", it.get("name",iid)))
+                    ("☑", display))
             self._tree.insert("","end", iid=iid, tags=(tag,), values=vals)
         self._upd_label()
 
@@ -516,8 +535,8 @@ class App(tk.Tk):
         ttk.Combobox(r2, textvariable=self.target_loader,
                       values=LOADERS, width=12, state="readonly").pack(side="left",padx=(4,10))
         ttk.Button(r2, text="✕ リセット",
-                    command=lambda: (self.target_version.set(MC_VERSIONS_FALLBACK[0]),
-                                     self.target_loader.set("fabric"))).pack(side="left")
+                    command=lambda: (self.target_version.set(""),
+                                     self.target_loader.set(""))).pack(side="left")
 
         # ── DL設定 ──
         lf3 = ttk.LabelFrame(f, text="🌐  ダウンロード設定")
@@ -575,32 +594,36 @@ class App(tk.Tk):
 
     # ── 一覧タブ（3列） ───────────────────────────────────────
     def _build_lists(self, p):
-        self._mod_panel = FileListPanel(
-            p, MR_MOD,
-            load_fn=self._load_mods,
-            update_fn=lambda: self._start_panel(self._mod_panel, "Mod"))
-        self._rp_panel = FileListPanel(
-            p, MR_RP,
-            load_fn=self._load_rp,
-            update_fn=lambda: self._start_panel(self._rp_panel, "ResourcePack"))
-        self._shader_panel = FileListPanel(
-            p, MR_SHADE,
-            load_fn=self._load_shader,
-            update_fn=lambda: self._start_panel(self._shader_panel, "Shader"))
-
-        for col, (panel, lbl) in enumerate([
-            (self._mod_panel,    "🧩 Mod"),
-            (self._rp_panel,     "🎨 ResourcePack"),
-            (self._shader_panel, "✨ Shader"),
-        ]):
-            lf = ttk.LabelFrame(p, text=f"  {lbl}  ")
-            lf.grid(row=0, column=col, sticky="nsew", padx=5, pady=5)
-            panel.pack(in_=lf, fill="both", expand=True)
-
         p.columnconfigure(0, weight=1)
         p.columnconfigure(1, weight=1)
         p.columnconfigure(2, weight=1)
         p.rowconfigure(0, weight=1)
+
+        # LabelFrame を先に作り、その中にパネルを直接生成する
+        lf_mod    = ttk.LabelFrame(p, text="  🧩 Mod  ")
+        lf_rp     = ttk.LabelFrame(p, text="  🎨 ResourcePack  ")
+        lf_shader = ttk.LabelFrame(p, text="  ✨ Shader  ")
+        lf_mod.grid(   row=0, column=0, sticky="nsew", padx=5, pady=5)
+        lf_rp.grid(    row=0, column=1, sticky="nsew", padx=5, pady=5)
+        lf_shader.grid(row=0, column=2, sticky="nsew", padx=5, pady=5)
+
+        self._mod_panel = FileListPanel(
+            lf_mod, MR_MOD,
+            load_fn=self._load_mods,
+            update_fn=lambda: self._start_panel(self._mod_panel, "Mod"))
+        self._mod_panel.pack(fill="both", expand=True)
+
+        self._rp_panel = FileListPanel(
+            lf_rp, MR_RP,
+            load_fn=self._load_rp,
+            update_fn=lambda: self._start_panel(self._rp_panel, "ResourcePack"))
+        self._rp_panel.pack(fill="both", expand=True)
+
+        self._shader_panel = FileListPanel(
+            lf_shader, MR_SHADE,
+            load_fn=self._load_shader,
+            update_fn=lambda: self._start_panel(self._shader_panel, "Shader"))
+        self._shader_panel.pack(fill="both", expand=True)
 
     # ── ログタブ（3分割） ─────────────────────────────────────
     def _build_log(self, p):
@@ -701,8 +724,10 @@ class App(tk.Tk):
             if ext == ".jar":
                 info = read_jar_meta(path)
             else:
+                raw  = os.path.splitext(fname)[0]
                 info = {"filename":fname, "path":path,
-                        "name":os.path.splitext(fname)[0],
+                        "name":clean_name(raw),   # バージョン番号を除去した検索名
+                        "display_name": raw,       # 表示用は元の名前
                         "mod_id":"","version":"","loader":""}
             items.append(info)
         panel.populate(items)
@@ -710,13 +735,16 @@ class App(tk.Tk):
         return True
 
     def _load_mods(self):
-        self._load_dir(self.mods_dir, ".jar", self._mod_panel, "mod", "Mod")
+        if self._load_dir(self.mods_dir, ".jar", self._mod_panel, "mod", "Mod"):
+            self._nb.select(1)
 
     def _load_rp(self):
-        self._load_dir(self.rp_dir, ".zip", self._rp_panel, "rp", "ResourcePack")
+        if self._load_dir(self.rp_dir, ".zip", self._rp_panel, "rp", "ResourcePack"):
+            self._nb.select(1)
 
     def _load_shader(self):
-        self._load_dir(self.shader_dir, ".zip", self._shader_panel, "shader", "Shader")
+        if self._load_dir(self.shader_dir, ".zip", self._shader_panel, "shader", "Shader"):
+            self._nb.select(1)
 
     def _load_all(self):
         self._load_mods()
