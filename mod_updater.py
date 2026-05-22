@@ -24,10 +24,11 @@ MC_VERSIONS_FALLBACK = [
     "1.15.2","1.12.2",
 ]
 LOADERS  = ["fabric","forge","neoforge","quilt"]
-DL_BOTH  = "両方（Modrinth優先）"
-DL_MR    = "Modrinthのみ"
-DL_CF    = "CurseForgeのみ"
-DL_MODES = [DL_BOTH, DL_MR, DL_CF]
+DL_BOTH     = "両方（Modrinth優先）"
+DL_CF_FIRST = "両方（CurseForge優先）"
+DL_MR       = "Modrinthのみ"
+DL_CF       = "CurseForgeのみ"
+DL_MODES    = [DL_BOTH, DL_CF_FIRST, DL_MR, DL_CF]
 
 CF_LOADER = {"forge":1,"fabric":4,"quilt":5,"neoforge":6}
 CF_GAME   = 432
@@ -181,12 +182,18 @@ def mr_find_project(sha1, mod_id, name, project_type):
     except Exception:
         return None
 
-def mr_get_versions(pid, mc_ver, loader):
+def mr_get_versions(pid, mc_ver, loader, mr_type=MR_MOD):
     try:
-        params = urllib.parse.urlencode({
-            "game_versions": json.dumps([mc_ver]),
-            "loaders":       json.dumps([loader]),
-        })
+        # RP・Shaderはmod loaderなしでバージョンのみ指定
+        if mr_type in (MR_RP, MR_SHADE):
+            params = urllib.parse.urlencode({
+                "game_versions": json.dumps([mc_ver]),
+            })
+        else:
+            params = urllib.parse.urlencode({
+                "game_versions": json.dumps([mc_ver]),
+                "loaders":       json.dumps([loader]),
+            })
         return http_get(f"{MODRINTH_API}/project/{pid}/version?{params}")
     except Exception:
         return []
@@ -219,9 +226,11 @@ def cf_search(name, api_key, class_id):
     except Exception:
         return None
 
-def cf_get_file(cf_id, mc_ver, loader, api_key):
+def cf_get_file(cf_id, mc_ver, loader, api_key, mr_type=MR_MOD):
+    # RP・Shaderはmod loaderなし（0=Any）
+    loader_id = CF_LOADER.get(loader, 0) if mr_type == MR_MOD else 0
     params = urllib.parse.urlencode({
-        "gameVersion":mc_ver,"modLoaderType":CF_LOADER.get(loader,0),"pageSize":10,
+        "gameVersion":mc_ver, "modLoaderType":loader_id, "pageSize":10,
     })
     try:
         d = _cf_req(f"{CURSEFORGE_API}/mods/{cf_id}/files?{params}", api_key)
@@ -234,17 +243,19 @@ def cf_get_file(cf_id, mc_ver, loader, api_key):
 # ── 統合検索 ──────────────────────────────────────────────────
 def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key,
                  mr_type, cf_class, log_cb):
-    do_mr = mode in (DL_BOTH, DL_MR)
-    do_cf = mode in (DL_BOTH, DL_CF)
+    do_mr      = mode in (DL_BOTH, DL_CF_FIRST, DL_MR)
+    do_cf      = mode in (DL_BOTH, DL_CF_FIRST, DL_CF)
+    cf_first   = mode == DL_CF_FIRST
     dl_url = dl_fname = source = None
     version_obj = None
 
-    if do_mr:
+    def _try_modrinth():
+        nonlocal dl_url, dl_fname, source, version_obj
         try:
             sha1 = sha1_file(path) if path and os.path.exists(path) else None
             pid  = mr_find_project(sha1, mod_id, name, mr_type)
             if pid:
-                vs = mr_get_versions(pid, mc_ver, loader)
+                vs = mr_get_versions(pid, mc_ver, loader, mr_type)
                 if vs:
                     version_obj = vs[0]
                     for fi in vs[0].get("files",[]):
@@ -253,26 +264,34 @@ def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key,
                             if fi.get("primary"): break
                     log_cb(f"  ✓ Modrinth: {dl_fname}","ok")
                 else:
-                    log_cb(f"  Modrinth: {mc_ver}/{loader} 対応なし","warn")
+                    log_cb(f"  Modrinth: {mc_ver} 対応なし","warn")
             else:
                 log_cb(f"  Modrinth: 見つからず","warn")
         except Exception as e:
             log_cb(f"  Modrinth エラー: {e}","err")
 
-    if do_cf and not dl_url:
+    def _try_curseforge():
+        nonlocal dl_url, dl_fname, source
         try:
             cf_id = cf_search(name, cf_key, cf_class)
             if cf_id:
-                fi = cf_get_file(cf_id, mc_ver, loader, cf_key)
+                fi = cf_get_file(cf_id, mc_ver, loader, cf_key, mr_type)
                 if fi:
                     dl_url,dl_fname,source = fi.get("downloadUrl"),fi.get("fileName"),"CurseForge"
                     log_cb(f"  ✓ CurseForge: {dl_fname}","ok")
                 else:
-                    log_cb(f"  CurseForge: {mc_ver}/{loader} 対応なし","warn")
+                    log_cb(f"  CurseForge: {mc_ver} 対応なし","warn")
             else:
                 log_cb(f"  CurseForge: 見つからず","warn")
         except Exception as e:
             log_cb(f"  CurseForge エラー: {e}","err")
+
+    if cf_first:
+        if do_cf: _try_curseforge()
+        if do_mr and not dl_url: _try_modrinth()
+    else:
+        if do_mr: _try_modrinth()
+        if do_cf and not dl_url: _try_curseforge()
 
     return dl_url, dl_fname, source, version_obj
 
@@ -289,12 +308,22 @@ class FileListPanel(ttk.Frame):
         self._build()
 
     def _build(self):
-        top = ttk.Frame(self); top.pack(fill="x", padx=4, pady=4)
-        ttk.Button(top, text="全選択",  command=lambda: self._sel_all(True)).pack(side="left",padx=(0,4))
-        ttk.Button(top, text="全解除",  command=lambda: self._sel_all(False)).pack(side="left",padx=(0,10))
-        ttk.Button(top, text="📂 読込", command=self._load_fn).pack(side="left",padx=(0,4))
-        ttk.Button(top, text="⬇ 更新",  command=self._update_fn).pack(side="left")
-        self._sel_label = ttk.Label(top, text="0 / 0 件")
+        # ── ツールバー：固定高さで揺れを防ぐ ──
+        top = ttk.Frame(self)
+        top.pack(fill="x", padx=6, pady=(6,2))
+
+        ttk.Button(top, text="全選択", width=6,
+                    command=lambda: self._sel_all(True)).pack(side="left", padx=(0,3))
+        ttk.Button(top, text="全解除", width=6,
+                    command=lambda: self._sel_all(False)).pack(side="left", padx=(0,6))
+        ttk.Separator(top, orient="vertical").pack(side="left", fill="y", padx=(0,6), pady=2)
+        ttk.Button(top, text="📂 読込", width=7,
+                    command=self._load_fn).pack(side="left", padx=(0,3))
+        ttk.Button(top, text="⬇ 更新", width=7,
+                    command=self._update_fn).pack(side="left")
+
+        # 固定幅ラベルで全選択/解除時のレイアウト揺れを防ぐ
+        self._sel_label = ttk.Label(top, text="0 / 0 件", width=12, anchor="e")
         self._sel_label.pack(side="right", padx=4)
 
         if self.mr_type == MR_MOD:
@@ -672,11 +701,14 @@ class App(tk.Tk):
 
     def _update_mode_ui(self):
         mode = self.dl_mode.get()
-        desc = {DL_BOTH:"Modrinthで検索 → なければCurseForgeも",
-                DL_MR:"Modrinthのみ（APIキー不要）",
-                DL_CF:"CurseForgeのみ（APIキー必須）"}.get(mode,"")
+        desc = {
+            DL_BOTH:     "Modrinthで検索 → なければCurseForgeも",
+            DL_CF_FIRST: "CurseForgeで検索 → なければModrinthも（APIキー必須）",
+            DL_MR:       "Modrinthのみ（APIキー不要）",
+            DL_CF:       "CurseForgeのみ（APIキー必須）",
+        }.get(mode,"")
         self._mode_desc.config(text=f"  ℹ {desc}")
-        need_cf = mode in (DL_BOTH, DL_CF)
+        need_cf = mode in (DL_BOTH, DL_CF_FIRST, DL_CF)
         state   = "normal" if need_cf else "disabled"
         self._cf_entry.config(state=state)
         self._cf_show_btn.config(state=state)
@@ -691,7 +723,7 @@ class App(tk.Tk):
         if d: var.set(d)
 
     def _validate_cf(self):
-        if self.dl_mode.get() in (DL_BOTH, DL_CF) and not self.cf_api_key.get().strip():
+        if self.dl_mode.get() in (DL_BOTH, DL_CF_FIRST, DL_CF) and not self.cf_api_key.get().strip():
             messagebox.showerror("エラー","CurseForgeを使用するにはAPIキーが必要です")
             return False
         return True
