@@ -652,17 +652,33 @@ class App(tk.Tk):
             update_fn=lambda: self._start_panel(self._shader_panel, "Shader"))
         self._shader_panel.pack(fill="both", expand=True)
 
-    # ── ログタブ（3分割） ─────────────────────────────────────
+    # ── ログタブ（システム上段 + 3列下段） ───────────────────
     def _build_log(self, p):
         self._log_boxes = {}
+
+        # 上段：システムログ
+        lf_sys = ttk.LabelFrame(p, text="  🖥 システム  ")
+        lf_sys.grid(row=0, column=0, columnspan=3, sticky="nsew", padx=5, pady=(5,2))
+        sys_box = scrolledtext.ScrolledText(
+            lf_sys, bg="#ffffff", fg=FG,
+            selectbackground="#bfdbfe", selectforeground=FG,
+            insertbackground=FG, height=5,
+            font=("Consolas",9), relief="flat", wrap="word")
+        sys_box.pack(fill="both", expand=True, padx=4, pady=(4,0))
+        for tag, color in [("ok",GRN),("err",RED),("info",ACC),("warn",YEL)]:
+            sys_box.tag_config(tag, foreground=color)
+        ttk.Button(lf_sys, text="クリア",
+                    command=lambda b=sys_box: b.delete("1.0","end")).pack(pady=3)
+        self._log_boxes["sys"] = sys_box
+
+        # 下段：Mod / RP / Shader
         for col, (key, lbl) in enumerate([
             ("mod",    "🧩 Mod"),
             ("rp",     "🎨 ResourcePack"),
             ("shader", "✨ Shader"),
         ]):
             lf = ttk.LabelFrame(p, text=f"  {lbl}  ")
-            lf.grid(row=0, column=col, sticky="nsew", padx=5, pady=5)
-
+            lf.grid(row=1, column=col, sticky="nsew", padx=5, pady=(2,5))
             box = scrolledtext.ScrolledText(
                 lf, bg="#ffffff", fg=FG,
                 selectbackground="#bfdbfe", selectforeground=FG,
@@ -672,13 +688,14 @@ class App(tk.Tk):
             for tag, color in [("ok",GRN),("err",RED),("info",ACC),("warn",YEL)]:
                 box.tag_config(tag, foreground=color)
             ttk.Button(lf, text="クリア",
-                        command=lambda b=box: b.delete("1.0","end")).pack(pady=4)
+                        command=lambda b=box: b.delete("1.0","end")).pack(pady=3)
             self._log_boxes[key] = box
 
         p.columnconfigure(0, weight=1)
         p.columnconfigure(1, weight=1)
         p.columnconfigure(2, weight=1)
-        p.rowconfigure(0, weight=1)
+        p.rowconfigure(0, weight=1)   # システム行
+        p.rowconfigure(1, weight=3)   # Mod/RP/Shader行（広め）
 
     # ── ヘルパー ──────────────────────────────────────────────
     def _log(self, msg, tag="", key="mod"):
@@ -747,7 +764,7 @@ class App(tk.Tk):
         if not files:
             messagebox.showinfo("情報", f"{ext}ファイルが見つかりませんでした")
             return False
-        self._log(f"📂 {kind_label}: {len(files)} 個を解析中...", "info", key)
+        self._log(f"📂 {kind_label}: {len(files)} 個を解析中...", "info", "sys")
         items = []
         for fname in files:
             path = os.path.join(d, fname)
@@ -761,7 +778,7 @@ class App(tk.Tk):
                         "mod_id":"","version":"","loader":""}
             items.append(info)
         panel.populate(items)
-        self._log(f"✅ {kind_label}: {len(items)} 件読み込み完了", "ok", key)
+        self._log(f"✅ {kind_label}: {len(items)} 件読み込み完了", "ok", "sys")
         return True
 
     def _load_mods(self):
@@ -798,9 +815,9 @@ class App(tk.Tk):
             messagebox.showwarning("確認",
                 f"mods / resourcepacks / shaderpacks が見つかりませんでした\n{base}")
             return
-        self._log(f"🚀 起動構成検出: {base}", "info", "mod")
+        self._log(f"🚀 起動構成検出: {base}", "info", "sys")
         for sub in found:
-            self._log(f"   ✓ {sub}", "ok", "mod")
+            self._log(f"   ✓ {sub}", "ok", "sys")
         self._load_all()
 
     # ── アップデート ──────────────────────────────────────────
@@ -980,10 +997,10 @@ class App(tk.Tk):
             self.target_version.set(self._ver_cb.get())
             if versions == MC_VERSIONS_FALLBACK:
                 self._ver_status.config(text="⚠ オフライン", foreground=YEL)
-                self._log("⚠ バージョン取得失敗 → フォールバック使用", "warn", "mod")
+                self._log("⚠ バージョン取得失敗 → フォールバック使用", "warn", "sys")
             else:
                 self._ver_status.config(text=f"✅ {len(versions)} 件", foreground=GRN)
-                self._log(f"✅ MCバージョン {len(versions)} 件取得（最新: {versions[0]}）","ok","mod")
+                self._log(f"✅ MCバージョン {len(versions)} 件取得（最新: {versions[0]}）","ok","sys")
         self.after(0, _upd)
 
     # ── 終了 ──────────────────────────────────────────────────
