@@ -18,26 +18,48 @@ jobs:
         with:
           python-version: "3.11"
 
+      # pipキャッシュ: PyInstallerのDLをスキップ
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: pip-pyinstaller-${{ runner.os }}-3.11
+          restore-keys: pip-pyinstaller-${{ runner.os }}-
+
       - name: Install dependencies
         run: pip install pyinstaller
 
+      # PyInstallerキャッシュ: 2回目以降の解析をスキップ
+      - name: Cache PyInstaller bootloader & work
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: pyinstaller-build-${{ runner.os }}-${{ hashFiles('mod_updater.py') }}
+          restore-keys: pyinstaller-build-${{ runner.os }}-
+
       - name: Build EXE
         run: |
-          pyinstaller --onefile --windowed --name "MC-Mod-Updater" mod_updater.py
+          pyinstaller --onedir --windowed --name "MC-Pack-Updater" `
+            --noupx `
+            mod_updater.py
+
+      # distフォルダをzip圧縮して1ファイルにまとめる
+      - name: Zip dist
+        run: Compress-Archive -Path dist\MC-Pack-Updater\* -DestinationPath dist\MC-Pack-Updater.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MC-Mod-Updater
-          path: dist/MC-Mod-Updater.exe
+          name: MC-Pack-Updater
+          path: dist\MC-Pack-Updater.zip
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: build-${{ github.run_number }}
-          name: "MC-Mod-Updater build #${{ github.run_number }}"
-          files: dist/MC-Mod-Updater.exe
+          name: "MC-Pack-Updater build #${{ github.run_number }}"
+          files: dist\MC-Pack-Updater.zip
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
