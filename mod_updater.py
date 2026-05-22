@@ -327,9 +327,9 @@ class FileListPanel(ttk.Frame):
         self._sel_label.pack(side="right", padx=4)
 
         if self.mr_type == MR_MOD:
-            cols  = ("chk","name","mod_id","version","loader")
-            heads = [("chk","✔",36),("name","名前",180),("mod_id","Mod ID",130),
-                     ("version","バージョン",90),("loader","Loader",66)]
+            cols  = ("chk","name","version","loader")
+            heads = [("chk","✔",36),("name","名前",220),
+                     ("version","バージョン",100),("loader","Loader",70)]
         else:
             cols  = ("chk","name")
             heads = [("chk","✔",36),("name","名前",280)]
@@ -358,8 +358,7 @@ class FileListPanel(ttk.Frame):
             iid = it["filename"]
             # 表示名: display_name があればそちらを優先（RP/Shaderの元ファイル名）
             display = it.get("display_name") or it.get("name", iid)
-            vals = (("☑", display, it.get("mod_id","?"),
-                     it.get("version","?"), it.get("loader","?"))
+            vals = (("☑", display, it.get("version","?"), it.get("loader","?"))
                     if self.mr_type == MR_MOD else
                     ("☑", display))
             self._tree.insert("","end", iid=iid, tags=(tag,), values=vals)
@@ -369,8 +368,7 @@ class FileListPanel(ttk.Frame):
         iid = item["filename"]
         if self._tree.exists(iid): return
         self.items.append(item)
-        vals = (("☑", item.get("name",iid), item.get("mod_id",""),
-                 item.get("version",""), item.get("loader",""))
+        vals = (("☑", item.get("name",iid), item.get("version",""), item.get("loader",""))
                 if self.mr_type == MR_MOD else
                 ("☑", item.get("name",iid)))
         self._tree.insert("","end", iid=iid, tags=(tag,), values=vals)
