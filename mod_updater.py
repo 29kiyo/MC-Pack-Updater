@@ -1,6 +1,5 @@
 import os
 import re
-import sys
 import json
 import zipfile
 import hashlib
@@ -24,21 +23,20 @@ MC_VERSIONS_FALLBACK = [
     "1.16.5","1.16.4","1.16.3","1.16.2","1.16.1",
     "1.15.2","1.12.2",
 ]
-LOADERS = ["fabric", "forge", "neoforge", "quilt"]
+LOADERS  = ["fabric","forge","neoforge","quilt"]
+DL_BOTH  = "両方（Modrinth優先）"
+DL_MR    = "Modrinthのみ"
+DL_CF    = "CurseForgeのみ"
+DL_MODES = [DL_BOTH, DL_MR, DL_CF]
 
-DL_MODE_BOTH       = "両方（Modrinth優先）"
-DL_MODE_MODRINTH   = "Modrinthのみ"
-DL_MODE_CURSEFORGE = "CurseForgeのみ"
-DL_MODES = [DL_MODE_BOTH, DL_MODE_MODRINTH, DL_MODE_CURSEFORGE]
-
-CF_LOADER_MAP  = {"forge":1,"fabric":4,"quilt":5,"neoforge":6}
-CF_GAME_ID     = 432
-CF_CLASS_MOD   = 6
-CF_CLASS_RP    = 12
-CF_CLASS_SHADER= 6552
-MR_TYPE_MOD    = "mod"
-MR_TYPE_RP     = "resourcepack"
-MR_TYPE_SHADER = "shader"
+CF_LOADER = {"forge":1,"fabric":4,"quilt":5,"neoforge":6}
+CF_GAME   = 432
+CF_MOD    = 6
+CF_RP     = 12
+CF_SHADE  = 6552
+MR_MOD    = "mod"
+MR_RP     = "resourcepack"
+MR_SHADE  = "shader"
 
 # ── カラー ────────────────────────────────────────────────────
 BG  = "#f4f4f0"
@@ -68,13 +66,13 @@ def save_config(data):
 # ── HTTP ──────────────────────────────────────────────────────
 def http_get(url, headers=None):
     req = urllib.request.Request(url, headers=headers or {})
-    req.add_header("User-Agent", "MC-Mod-Updater/4.0")
+    req.add_header("User-Agent", "MC-Mod-Updater/5.0")
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode())
 
 def download_file(url, dest, progress_cb=None):
     req = urllib.request.Request(url)
-    req.add_header("User-Agent", "MC-Mod-Updater/4.0")
+    req.add_header("User-Agent", "MC-Mod-Updater/5.0")
     with urllib.request.urlopen(req, timeout=60) as r:
         total = int(r.headers.get("Content-Length", 0))
         done  = 0
@@ -93,9 +91,8 @@ def fetch_mc_versions():
         data = http_get(f"{MODRINTH_API}/tag/game_version")
         releases = [v["version"] for v in data
                     if v.get("version_type") == "release" and "." in v.get("version","")]
-        def vk(v):
-            return tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.\-]", v))
-        releases.sort(key=vk, reverse=True)
+        releases.sort(key=lambda v: tuple(int(x) if x.isdigit() else 0
+                                          for x in re.split(r"[.\-]", v)), reverse=True)
         return releases if releases else MC_VERSIONS_FALLBACK
     except Exception:
         return MC_VERSIONS_FALLBACK
@@ -104,24 +101,23 @@ def fetch_mc_versions():
 def sha1_file(path):
     h = hashlib.sha1()
     with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
+        for chunk in iter(lambda: f.read(65536), b""): h.update(chunk)
     return h.hexdigest()
 
 def read_jar_meta(jar_path):
     info = {"filename": os.path.basename(jar_path), "path": jar_path,
-            "name": os.path.basename(jar_path), "mod_id": "", "version": "", "loader": "不明"}
+            "name": os.path.basename(jar_path), "mod_id":"", "version":"", "loader":"不明"}
     try:
         with zipfile.ZipFile(jar_path, "r") as zf:
             names = zf.namelist()
-            for meta in ("fabric.mod.json", "quilt.mod.json"):
+            for meta in ("fabric.mod.json","quilt.mod.json"):
                 if meta in names:
                     d = json.loads(zf.read(meta).decode("utf-8", errors="ignore"))
-                    info.update({"mod_id": d.get("id",""), "name": d.get("name", info["filename"]),
-                                 "version": d.get("version",""),
-                                 "loader": "quilt" if meta.startswith("quilt") else "fabric"})
+                    info.update({"mod_id":d.get("id",""), "name":d.get("name",info["filename"]),
+                                 "version":d.get("version",""),
+                                 "loader":"quilt" if meta.startswith("quilt") else "fabric"})
                     return info
-            for meta in ("META-INF/mods.toml", "META-INF/neoforge.mods.toml"):
+            for meta in ("META-INF/mods.toml","META-INF/neoforge.mods.toml"):
                 if meta in names:
                     raw = zf.read(meta).decode("utf-8", errors="ignore")
                     info["loader"] = "neoforge" if "neoforge" in meta else "forge"
@@ -156,9 +152,8 @@ def mr_find_project(sha1, mod_id, name, project_type):
         except Exception: pass
     try:
         params = urllib.parse.urlencode({
-            "query":  name,
-            "facets": json.dumps([["project_type:" + project_type]]),
-            "limit":  5,
+            "query": name, "limit": 5,
+            "facets": json.dumps([["project_type:"+project_type]]),
         })
         d = http_get(f"{MODRINTH_API}/search?{params}")
         hits = d.get("hits", [])
@@ -180,27 +175,26 @@ def mr_get_versions(pid, mc_ver, loader):
         return []
 
 def mr_get_deps(version_obj, mc_ver, loader):
-    return [d.get("project_id") for d in version_obj.get("dependencies", [])
+    return [d.get("project_id") for d in version_obj.get("dependencies",[])
             if d.get("dependency_type") == "required" and d.get("project_id")]
 
 # ── CurseForge ────────────────────────────────────────────────
 def _cf_req(url, api_key):
     req = urllib.request.Request(url)
-    req.add_header("User-Agent", "MC-Mod-Updater/4.0")
-    req.add_header("x-api-key",  api_key)
-    req.add_header("Accept",     "application/json")
+    req.add_header("User-Agent","MC-Mod-Updater/5.0")
+    req.add_header("x-api-key", api_key)
+    req.add_header("Accept","application/json")
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode())
 
 def cf_search(name, api_key, class_id):
     params = urllib.parse.urlencode({
-        "gameId": CF_GAME_ID, "classId": class_id,
-        "searchFilter": name, "pageSize": 5,
-        "sortField": 2, "sortOrder": "desc",
+        "gameId":CF_GAME,"classId":class_id,"searchFilter":name,"pageSize":5,
+        "sortField":2,"sortOrder":"desc",
     })
     try:
         d = _cf_req(f"{CURSEFORGE_API}/mods/search?{params}", api_key)
-        results = d.get("data", [])
+        results = d.get("data",[])
         if not results: return None
         for r in results:
             if r.get("name","").lower() == name.lower(): return r["id"]
@@ -210,12 +204,12 @@ def cf_search(name, api_key, class_id):
 
 def cf_get_file(cf_id, mc_ver, loader, api_key):
     params = urllib.parse.urlencode({
-        "gameVersion": mc_ver, "modLoaderType": CF_LOADER_MAP.get(loader, 0), "pageSize": 10,
+        "gameVersion":mc_ver,"modLoaderType":CF_LOADER.get(loader,0),"pageSize":10,
     })
     try:
         d = _cf_req(f"{CURSEFORGE_API}/mods/{cf_id}/files?{params}", api_key)
-        files = d.get("data", [])
-        files.sort(key=lambda f: (f.get("releaseType", 9), -f.get("id", 0)))
+        files = d.get("data",[])
+        files.sort(key=lambda f: (f.get("releaseType",9), -f.get("id",0)))
         return files[0] if files else None
     except Exception:
         return None
@@ -223,8 +217,8 @@ def cf_get_file(cf_id, mc_ver, loader, api_key):
 # ── 統合検索 ──────────────────────────────────────────────────
 def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key,
                  mr_type, cf_class, log_cb):
-    do_mr = mode in (DL_MODE_BOTH, DL_MODE_MODRINTH)
-    do_cf = mode in (DL_MODE_BOTH, DL_MODE_CURSEFORGE)
+    do_mr = mode in (DL_BOTH, DL_MR)
+    do_cf = mode in (DL_BOTH, DL_CF)
     dl_url = dl_fname = source = None
     version_obj = None
 
@@ -236,17 +230,17 @@ def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key,
                 vs = mr_get_versions(pid, mc_ver, loader)
                 if vs:
                     version_obj = vs[0]
-                    for fi in vs[0].get("files", []):
+                    for fi in vs[0].get("files",[]):
                         if fi.get("primary") or not dl_url:
-                            dl_url, dl_fname, source = fi["url"], fi["filename"], "Modrinth"
+                            dl_url,dl_fname,source = fi["url"],fi["filename"],"Modrinth"
                             if fi.get("primary"): break
-                    log_cb(f"  ✓ Modrinth: {dl_fname}", "ok")
+                    log_cb(f"  ✓ Modrinth: {dl_fname}","ok")
                 else:
-                    log_cb(f"  Modrinth: {mc_ver}/{loader} 対応なし", "warn")
+                    log_cb(f"  Modrinth: {mc_ver}/{loader} 対応なし","warn")
             else:
-                log_cb(f"  Modrinth: 見つからず", "warn")
+                log_cb(f"  Modrinth: 見つからず","warn")
         except Exception as e:
-            log_cb(f"  Modrinth エラー: {e}", "err")
+            log_cb(f"  Modrinth エラー: {e}","err")
 
     if do_cf and not dl_url:
         try:
@@ -254,60 +248,51 @@ def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key,
             if cf_id:
                 fi = cf_get_file(cf_id, mc_ver, loader, cf_key)
                 if fi:
-                    dl_url, dl_fname, source = fi.get("downloadUrl"), fi.get("fileName"), "CurseForge"
-                    log_cb(f"  ✓ CurseForge: {dl_fname}", "ok")
+                    dl_url,dl_fname,source = fi.get("downloadUrl"),fi.get("fileName"),"CurseForge"
+                    log_cb(f"  ✓ CurseForge: {dl_fname}","ok")
                 else:
-                    log_cb(f"  CurseForge: {mc_ver}/{loader} 対応なし", "warn")
+                    log_cb(f"  CurseForge: {mc_ver}/{loader} 対応なし","warn")
             else:
-                log_cb(f"  CurseForge: 見つからず", "warn")
+                log_cb(f"  CurseForge: 見つからず","warn")
         except Exception as e:
-            log_cb(f"  CurseForge エラー: {e}", "err")
+            log_cb(f"  CurseForge エラー: {e}","err")
 
     return dl_url, dl_fname, source, version_obj
 
 # ══════════════════════════════════════════════════════════════
-# リスト用ウィジェット
+# FileListPanel
 # ══════════════════════════════════════════════════════════════
 class FileListPanel(ttk.Frame):
-    """Mod / RP / Shader 共通のリストパネル"""
-
-    def __init__(self, parent, label, mr_type, cf_class,
-                 file_ext, load_fn, update_fn, **kw):
+    def __init__(self, parent, mr_type, load_fn, update_fn, **kw):
         super().__init__(parent, **kw)
-        self.label    = label
         self.mr_type  = mr_type
-        self.cf_class = cf_class
-        self.file_ext = file_ext   # ".jar" or ".zip"
         self._load_fn   = load_fn
         self._update_fn = update_fn
-        self.items = []   # [{filename, name, path, mod_id, version, loader}]
+        self.items = []
         self._build()
 
     def _build(self):
-        # ── ツールバー ──
-        top = ttk.Frame(self); top.pack(fill="x", padx=6, pady=4)
-        ttk.Button(top, text="全選択",  command=lambda: self._sel_all(True)).pack(side="left", padx=(0,4))
-        ttk.Button(top, text="全解除",  command=lambda: self._sel_all(False)).pack(side="left", padx=(0,12))
-        ttk.Button(top, text=f"📂 読み込む",
-                    command=self._load_fn).pack(side="left", padx=(0,6))
-        ttk.Button(top, text=f"⬇ アップデート",
-                    command=self._update_fn).pack(side="left")
+        top = ttk.Frame(self); top.pack(fill="x", padx=4, pady=4)
+        ttk.Button(top, text="全選択",  command=lambda: self._sel_all(True)).pack(side="left",padx=(0,4))
+        ttk.Button(top, text="全解除",  command=lambda: self._sel_all(False)).pack(side="left",padx=(0,10))
+        ttk.Button(top, text="📂 読込", command=self._load_fn).pack(side="left",padx=(0,4))
+        ttk.Button(top, text="⬇ 更新",  command=self._update_fn).pack(side="left")
         self._sel_label = ttk.Label(top, text="0 / 0 件")
-        self._sel_label.pack(side="right", padx=6)
+        self._sel_label.pack(side="right", padx=4)
 
-        # ── ツリー ──
-        if self.mr_type == MR_TYPE_MOD:
-            cols = ("chk","name","mod_id","version","loader")
-            heads = [("chk","✔",38),("name","名前",220),
-                     ("mod_id","Mod ID",150),("version","バージョン",100),("loader","Loader",75)]
+        if self.mr_type == MR_MOD:
+            cols  = ("chk","name","mod_id","version","loader")
+            heads = [("chk","✔",36),("name","名前",180),("mod_id","Mod ID",130),
+                     ("version","バージョン",90),("loader","Loader",66)]
         else:
-            cols = ("chk","name","version")
-            heads = [("chk","✔",38),("name","名前",300),("version","バージョン",100)]
+            cols  = ("chk","name")
+            heads = [("chk","✔",36),("name","名前",280)]
 
         self._tree = ttk.Treeview(self, columns=cols, show="headings", selectmode="none")
-        for cid, lbl, w in heads:
+        for cid,lbl,w in heads:
             self._tree.heading(cid, text=lbl)
-            self._tree.column(cid, width=w, anchor="center" if cid=="chk" else "w",
+            self._tree.column(cid, width=w,
+                               anchor="center" if cid=="chk" else "w",
                                stretch=(cid=="name"))
         self._tree.tag_configure("even", background=BG2)
         self._tree.tag_configure("odd",  background="#f0f0eb")
@@ -315,36 +300,32 @@ class FileListPanel(ttk.Frame):
 
         vsb = ttk.Scrollbar(self, orient="vertical", command=self._tree.yview)
         self._tree.configure(yscrollcommand=vsb.set)
-        self._tree.pack(side="left", fill="both", expand=True, padx=(6,0), pady=(0,6))
-        vsb.pack(side="left", fill="y", pady=(0,6), padx=(0,6))
+        self._tree.pack(side="left", fill="both", expand=True, padx=(4,0), pady=(0,4))
+        vsb.pack(side="left", fill="y", pady=(0,4), padx=(0,4))
         self._tree.bind("<Button-1>", self._on_click)
 
     def populate(self, items):
-        """items: [{filename, name, path, mod_id, version, loader}]"""
-        for row in self._tree.get_children():
-            self._tree.delete(row)
-        self.items = items
-        for i, it in enumerate(items):
-            tag = "even" if i % 2 == 0 else "odd"
+        for row in self._tree.get_children(): self._tree.delete(row)
+        self.items = list(items)
+        for i, it in enumerate(self.items):
+            tag = "even" if i%2==0 else "odd"
             iid = it["filename"]
-            if self.mr_type == MR_TYPE_MOD:
-                vals = ("☑", it.get("name", iid), it.get("mod_id","?"),
-                        it.get("version","?"), it.get("loader","?"))
-            else:
-                vals = ("☑", it.get("name", iid), it.get("version","?"))
-            self._tree.insert("", "end", iid=iid, tags=(tag,), values=vals)
+            vals = (("☑", it.get("name",iid), it.get("mod_id","?"),
+                     it.get("version","?"), it.get("loader","?"))
+                    if self.mr_type == MR_MOD else
+                    ("☑", it.get("name",iid)))
+            self._tree.insert("","end", iid=iid, tags=(tag,), values=vals)
         self._upd_label()
 
     def add_item(self, item, tag="dep"):
         iid = item["filename"]
         if self._tree.exists(iid): return
         self.items.append(item)
-        if self.mr_type == MR_TYPE_MOD:
-            vals = ("☑", item.get("name", iid), item.get("mod_id",""),
-                    item.get("version",""), item.get("loader",""))
-        else:
-            vals = ("☑", item.get("name", iid), item.get("version",""))
-        self._tree.insert("", "end", iid=iid, tags=(tag,), values=vals)
+        vals = (("☑", item.get("name",iid), item.get("mod_id",""),
+                 item.get("version",""), item.get("loader",""))
+                if self.mr_type == MR_MOD else
+                ("☑", item.get("name",iid)))
+        self._tree.insert("","end", iid=iid, tags=(tag,), values=vals)
         self._upd_label()
 
     def get_selected(self):
@@ -356,29 +337,29 @@ class FileListPanel(ttk.Frame):
         row = self._tree.identify_row(e.y)
         col = self._tree.identify_column(e.x)
         if row and col == "#1":
-            cur = self._tree.set(row, "chk")
-            self._tree.set(row, "chk", "☑" if cur == "☐" else "☐")
+            cur = self._tree.set(row,"chk")
+            self._tree.set(row,"chk","☑" if cur=="☐" else "☐")
             self._upd_label()
 
     def _sel_all(self, v):
         for row in self._tree.get_children():
-            self._tree.set(row, "chk", "☑" if v else "☐")
+            self._tree.set(row,"chk","☑" if v else "☐")
         self._upd_label()
 
     def _upd_label(self):
         rows = self._tree.get_children()
-        sel  = sum(1 for r in rows if self._tree.set(r,"chk") == "☑")
+        sel  = sum(1 for r in rows if self._tree.set(r,"chk")=="☑")
         self._sel_label.config(text=f"{sel} / {len(rows)} 件選択")
 
 
 # ══════════════════════════════════════════════════════════════
-# メインアプリ
+# App
 # ══════════════════════════════════════════════════════════════
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("⛏ MC Mod Updater")
-        self.geometry("1100x760")
+        self.geometry("1150x780")
         self.configure(bg=BG)
         self.resizable(True, True)
 
@@ -386,13 +367,11 @@ class App(tk.Tk):
         self.target_version = tk.StringVar(value=cfg.get("target_version","1.21.4"))
         self.target_loader  = tk.StringVar(value=cfg.get("target_loader","fabric"))
         self.cf_api_key     = tk.StringVar(value=cfg.get("cf_api_key",""))
-        self.dl_mode        = tk.StringVar(value=cfg.get("dl_mode", DL_MODE_BOTH))
-        # フォルダ（起動構成 or 個別）
+        self.dl_mode        = tk.StringVar(value=cfg.get("dl_mode",DL_BOTH))
         self.profile_dir    = tk.StringVar(value=cfg.get("profile_dir",""))
         self.mods_dir       = tk.StringVar(value=cfg.get("mods_dir",""))
         self.rp_dir         = tk.StringVar(value=cfg.get("rp_dir",""))
         self.shader_dir     = tk.StringVar(value=cfg.get("shader_dir",""))
-        # オプション
         self.delete_old     = tk.BooleanVar(value=cfg.get("delete_old",False))
         self.delete_failed  = tk.BooleanVar(value=cfg.get("delete_failed",False))
         self.auto_deps      = tk.BooleanVar(value=cfg.get("auto_deps",True))
@@ -402,23 +381,9 @@ class App(tk.Tk):
 
         self._apply_style()
         self._build_ui()
-        self._disable_combobox_mousewheel()   # ← ホイール誤操作を防止
+        self._disable_combobox_wheel()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         threading.Thread(target=self._fetch_versions_bg, daemon=True).start()
-
-    def _disable_combobox_mousewheel(self):
-        """コンボボックスのマウスホイールによる値変更を無効化。
-           設定タブのスクロールはコンボボックス以外でのみ動作させる。"""
-        def _block(e):
-            return "break"
-        def _bind_all(widget):
-            if isinstance(widget, ttk.Combobox):
-                widget.bind("<MouseWheel>", _block)
-                widget.bind("<Button-4>",   _block)
-                widget.bind("<Button-5>",   _block)
-            for child in widget.winfo_children():
-                _bind_all(child)
-        _bind_all(self)
 
     # ── スタイル ──────────────────────────────────────────────
     def _apply_style(self):
@@ -447,7 +412,8 @@ class App(tk.Tk):
                      fieldbackground=BG2, rowheight=26, font=("Segoe UI",9))
         s.configure("Treeview.Heading", background=BG, foreground=ACC,
                      font=("Segoe UI",9,"bold"), relief="flat")
-        s.map("Treeview",               background=[("selected",BG3)])
+        s.map("Treeview",               background=[("selected","#bfdbfe")],
+                                        foreground=[("selected",FG)])
         s.configure("TProgressbar",     troughcolor=BG2, background=ACC, thickness=8)
         s.configure("TNotebook",        background=BG, tabmargins=0)
         s.configure("TNotebook.Tab",    background=BG2, foreground=FG,
@@ -477,16 +443,14 @@ class App(tk.Tk):
         self._build_lists(t_list)
         self._build_log(t_log)
 
-        # 下部バー
         bar = ttk.Frame(self); bar.pack(fill="x", padx=12, pady=(0,8))
         self._progress   = ttk.Progressbar(bar, mode="determinate")
         self._progress.pack(side="left", fill="x", expand=True, padx=(0,10))
         self._prog_label = ttk.Label(bar, text="", width=34)
         self._prog_label.pack(side="left")
 
-    # ── 設定タブ ──────────────────────────────────────────────
+    # ── 設定タブ（スクロール対応） ────────────────────────────
     def _build_settings(self, p):
-        # スクロール可能にするためCanvasを使う
         canvas = tk.Canvas(p, bg=BG, highlightthickness=0)
         vsb    = ttk.Scrollbar(p, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=vsb.set)
@@ -494,56 +458,52 @@ class App(tk.Tk):
         canvas.pack(side="left", fill="both", expand=True)
 
         f = ttk.Frame(canvas)
-        win_id = canvas.create_window((0, 0), window=f, anchor="nw")
+        win_id = canvas.create_window((0,0), window=f, anchor="nw")
 
-        def _on_frame_resize(e):
-            canvas.configure(scrollregion=canvas.bbox("all"))
-        def _on_canvas_resize(e):
-            canvas.itemconfig(win_id, width=e.width)
-        f.bind("<Configure>",      _on_frame_resize)
-        canvas.bind("<Configure>", _on_canvas_resize)
+        f.bind("<Configure>",      lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(win_id, width=e.width))
 
-        # マウスホイールでスクロール（Combobox以外で動くよう設定タブ全体にバインド）
-        def _on_wheel(e):
+        def _wheel(e):
+            # コンボボックス上ではスクロールしない
+            if isinstance(e.widget, ttk.Combobox): return
             canvas.yview_scroll(int(-1*(e.delta/120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_wheel)
-        # タブ切り替え時にホイールバインドを適切に切り替える
-        def _bind_wheel(e=None):
-            canvas.bind_all("<MouseWheel>", _on_wheel)
-        def _unbind_wheel(e=None):
-            canvas.unbind_all("<MouseWheel>")
-        p.bind("<Visibility>", _bind_wheel)
+        canvas.bind_all("<MouseWheel>", _wheel)
 
-        PAD = dict(pady=(0, 8))
+        PAD = dict(padx=14, pady=(0,8))
 
-        # ── 起動構成フォルダ ──
-        lf0 = ttk.LabelFrame(f, text="🚀  起動構成フォルダ（1つ指定で mods / resourcepacks / shaderpacks を自動検出）")
-        lf0.pack(fill="x", padx=14, **PAD)
-        r0 = ttk.Frame(lf0); r0.pack(fill="x", padx=10, pady=8)
+        # ── 起動構成 ──
+        lf0 = ttk.LabelFrame(f, text="🚀  起動構成フォルダ")
+        lf0.pack(fill="x", **PAD)
+        note = ttk.Label(lf0, text="指定すると mods / resourcepacks / shaderpacks を自動検出します",
+                          foreground=YEL, background=BG, font=("Segoe UI",8))
+        note.pack(anchor="w", padx=10, pady=(4,0))
+        r0 = ttk.Frame(lf0); r0.pack(fill="x", padx=10, pady=(4,8))
         ttk.Entry(r0, textvariable=self.profile_dir).pack(
             side="left", fill="x", expand=True, padx=(0,6))
         ttk.Button(r0, text="参照",
-                    command=lambda: self._browse(self.profile_dir)).pack(side="left", padx=(0,6))
+                    command=lambda: self._browse(self.profile_dir)).pack(side="left",padx=(0,6))
         ttk.Button(r0, text="自動検出して読み込む",
-                    command=self._load_from_profile).pack(side="left")
+                    command=self._load_from_profile).pack(side="left",padx=(0,6))
+        ttk.Button(r0, text="✕ リセット",
+                    command=lambda: self.profile_dir.set("")).pack(side="left")
 
         # ── 個別フォルダ ──
         lf1 = ttk.LabelFrame(f, text="📁  個別フォルダ指定")
-        lf1.pack(fill="x", padx=14, **PAD)
-        for lbl, var in [
-            ("🧩 Mods",         self.mods_dir),
-            ("🎨 ResourcePacks", self.rp_dir),
-            ("✨ Shaders",       self.shader_dir),
-        ]:
+        lf1.pack(fill="x", **PAD)
+        for lbl, var in [("🧩 Mods", self.mods_dir),
+                          ("🎨 ResourcePacks", self.rp_dir),
+                          ("✨ Shaders", self.shader_dir)]:
             row = ttk.Frame(lf1); row.pack(fill="x", padx=10, pady=3)
             ttk.Label(row, text=lbl, width=18).pack(side="left")
-            ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True, padx=(0,6))
+            ttk.Entry(row, textvariable=var).pack(side="left",fill="x",expand=True,padx=(0,6))
             ttk.Button(row, text="参照",
-                        command=lambda v=var: self._browse(v)).pack(side="left")
+                        command=lambda v=var: self._browse(v)).pack(side="left",padx=(0,6))
+            ttk.Button(row, text="✕",
+                        command=lambda v=var: v.set(""), width=3).pack(side="left")
 
         # ── バージョン ──
         lf2 = ttk.LabelFrame(f, text="🎯  アップデート先")
-        lf2.pack(fill="x", padx=14, **PAD)
+        lf2.pack(fill="x", **PAD)
         r2 = ttk.Frame(lf2); r2.pack(fill="x", padx=10, pady=8)
         ttk.Label(r2, text="MCバージョン:").pack(side="left")
         self._ver_cb = ttk.Combobox(r2, textvariable=self.target_version,
@@ -551,14 +511,17 @@ class App(tk.Tk):
         self._ver_cb.pack(side="left", padx=(4,4))
         self._ver_status = ttk.Label(r2, text="🔄 取得中...",
                                       foreground=YEL, background=BG, font=("Segoe UI",8))
-        self._ver_status.pack(side="left", padx=(0,18))
+        self._ver_status.pack(side="left", padx=(0,14))
         ttk.Label(r2, text="Mod Loader:").pack(side="left")
         ttk.Combobox(r2, textvariable=self.target_loader,
-                      values=LOADERS, width=12, state="readonly").pack(side="left", padx=(4,0))
+                      values=LOADERS, width=12, state="readonly").pack(side="left",padx=(4,10))
+        ttk.Button(r2, text="✕ リセット",
+                    command=lambda: (self.target_version.set(MC_VERSIONS_FALLBACK[0]),
+                                     self.target_loader.set("fabric"))).pack(side="left")
 
         # ── DL設定 ──
         lf3 = ttk.LabelFrame(f, text="🌐  ダウンロード設定")
-        lf3.pack(fill="x", padx=14, **PAD)
+        lf3.pack(fill="x", **PAD)
         r3 = ttk.Frame(lf3); r3.pack(fill="x", padx=10, pady=(8,4))
         ttk.Label(r3, text="モード:").pack(side="left")
         self._dl_mode_cb = ttk.Combobox(r3, textvariable=self.dl_mode,
@@ -571,19 +534,18 @@ class App(tk.Tk):
         ttk.Separator(lf3, orient="horizontal").pack(fill="x", padx=10, pady=4)
         r4 = ttk.Frame(lf3); r4.pack(fill="x", padx=10, pady=(2,8))
         ttk.Label(r4, text="CurseForge APIキー:").pack(side="left")
-        self._cf_entry = ttk.Entry(r4, textvariable=self.cf_api_key, show="*", width=40)
+        self._cf_entry = ttk.Entry(r4, textvariable=self.cf_api_key, show="*", width=38)
         self._cf_entry.pack(side="left", padx=(6,6))
         self._cf_show_btn = ttk.Button(r4, text="表示",
                                         command=self._toggle_cf_show, width=5)
         self._cf_show_btn.pack(side="left", padx=(0,6))
         ttk.Button(r4, text="取得方法 ↗",
-                    command=lambda: webbrowser.open(
-                        "https://console.curseforge.com/")).pack(side="left")
+                    command=lambda: webbrowser.open("https://console.curseforge.com/")).pack(side="left")
         self._update_mode_ui()
 
         # ── オプション ──
         lf4 = ttk.LabelFrame(f, text="⚙  オプション")
-        lf4.pack(fill="x", padx=14, **PAD)
+        lf4.pack(fill="x", **PAD)
         for txt, var in [
             ("アップデート後に古いファイルを削除する",                    self.delete_old),
             ("ダウンロード失敗したファイルを削除する（壊れたファイル除去）", self.delete_failed),
@@ -594,83 +556,104 @@ class App(tk.Tk):
         # ── 操作ボタン ──
         lf5 = ttk.LabelFrame(f, text="▶  操作")
         lf5.pack(fill="x", padx=14, pady=(0,4))
-
-        # 全て読み込む / 全て一括アップデート
-        top_row = ttk.Frame(lf5); top_row.pack(fill="x", padx=10, pady=(6,4))
+        top_row = ttk.Frame(lf5); top_row.pack(fill="x", padx=10, pady=(8,4))
         ttk.Button(top_row, text="📂 全て読み込む",
-                    command=self._load_all).pack(side="left", padx=(0,8))
+                    command=self._load_all).pack(side="left",padx=(0,8))
         ttk.Button(top_row, text="🔄 全て一括アップデート",
                     command=self._start_all).pack(side="left")
-
         ttk.Separator(lf5, orient="horizontal").pack(fill="x", padx=10, pady=4)
-
-        # 個別ボタン
         for lbl, load_cmd, upd_cmd in [
-            ("🧩 Mod",          self._load_mods,   lambda: self._start_panel(self._mod_panel)),
-            ("🎨 ResourcePack", self._load_rp,     lambda: self._start_panel(self._rp_panel)),
-            ("✨ Shader",        self._load_shader, lambda: self._start_panel(self._shader_panel)),
+            ("🧩 Mod",          self._load_mods,   lambda: self._start_panel(self._mod_panel,   "Mod")),
+            ("🎨 ResourcePack", self._load_rp,     lambda: self._start_panel(self._rp_panel,    "ResourcePack")),
+            ("✨ Shader",        self._load_shader, lambda: self._start_panel(self._shader_panel,"Shader")),
         ]:
             row = ttk.Frame(lf5); row.pack(fill="x", padx=10, pady=3)
             ttk.Label(row, text=lbl, width=16).pack(side="left")
-            ttk.Button(row, text="📂 読み込む",     command=load_cmd).pack(side="left", padx=(0,6))
+            ttk.Button(row, text="📂 読み込む",     command=load_cmd).pack(side="left",padx=(0,6))
             ttk.Button(row, text="⬇ アップデート", command=upd_cmd).pack(side="left")
-
-        # 下余白
         ttk.Frame(f, height=10).pack()
-
 
     # ── 一覧タブ（3列） ───────────────────────────────────────
     def _build_lists(self, p):
-        # 横に3分割
         self._mod_panel = FileListPanel(
-            p, "Mod", MR_TYPE_MOD, CF_CLASS_MOD, ".jar",
+            p, MR_MOD,
             load_fn=self._load_mods,
-            update_fn=lambda: self._start_panel(self._mod_panel))
+            update_fn=lambda: self._start_panel(self._mod_panel, "Mod"))
         self._rp_panel = FileListPanel(
-            p, "ResourcePack", MR_TYPE_RP, CF_CLASS_RP, ".zip",
+            p, MR_RP,
             load_fn=self._load_rp,
-            update_fn=lambda: self._start_panel(self._rp_panel))
+            update_fn=lambda: self._start_panel(self._rp_panel, "ResourcePack"))
         self._shader_panel = FileListPanel(
-            p, "Shader", MR_TYPE_SHADER, CF_CLASS_SHADER, ".zip",
+            p, MR_SHADE,
             load_fn=self._load_shader,
-            update_fn=lambda: self._start_panel(self._shader_panel))
+            update_fn=lambda: self._start_panel(self._shader_panel, "Shader"))
 
-        # ラベル付きで横並び
-        for panel, lbl, col in [
-            (self._mod_panel,    "🧩 Mod",         0),
-            (self._rp_panel,     "🎨 ResourcePack", 1),
-            (self._shader_panel, "✨ Shader",        2),
-        ]:
-            wrapper = ttk.LabelFrame(p, text=f"  {lbl}  ")
-            wrapper.grid(row=0, column=col, sticky="nsew", padx=5, pady=5)
-            panel.pack(in_=wrapper, fill="both", expand=True)
+        for col, (panel, lbl) in enumerate([
+            (self._mod_panel,    "🧩 Mod"),
+            (self._rp_panel,     "🎨 ResourcePack"),
+            (self._shader_panel, "✨ Shader"),
+        ]):
+            lf = ttk.LabelFrame(p, text=f"  {lbl}  ")
+            lf.grid(row=0, column=col, sticky="nsew", padx=5, pady=5)
+            panel.pack(in_=lf, fill="both", expand=True)
 
         p.columnconfigure(0, weight=1)
         p.columnconfigure(1, weight=1)
         p.columnconfigure(2, weight=1)
         p.rowconfigure(0, weight=1)
 
-    # ── ログタブ ──────────────────────────────────────────────
+    # ── ログタブ（3分割） ─────────────────────────────────────
     def _build_log(self, p):
-        self._log_box = scrolledtext.ScrolledText(
-            p, bg="#ffffff", fg=FG, insertbackground=FG,
-            font=("Consolas",9), relief="flat", wrap="word")
-        self._log_box.pack(fill="both", expand=True, padx=8, pady=8)
-        for tag, color in [("ok",GRN),("err",RED),("info",ACC),("warn",YEL)]:
-            self._log_box.tag_config(tag, foreground=color)
-        ttk.Button(p, text="ログをクリア",
-                    command=lambda: self._log_box.delete("1.0","end")).pack(pady=(0,8))
+        self._log_boxes = {}
+        for col, (key, lbl) in enumerate([
+            ("mod",    "🧩 Mod"),
+            ("rp",     "🎨 ResourcePack"),
+            ("shader", "✨ Shader"),
+        ]):
+            lf = ttk.LabelFrame(p, text=f"  {lbl}  ")
+            lf.grid(row=0, column=col, sticky="nsew", padx=5, pady=5)
+
+            box = scrolledtext.ScrolledText(
+                lf, bg="#ffffff", fg=FG,
+                selectbackground="#bfdbfe", selectforeground=FG,
+                insertbackground=FG,
+                font=("Consolas",9), relief="flat", wrap="word")
+            box.pack(fill="both", expand=True, padx=4, pady=(4,0))
+            for tag, color in [("ok",GRN),("err",RED),("info",ACC),("warn",YEL)]:
+                box.tag_config(tag, foreground=color)
+            ttk.Button(lf, text="クリア",
+                        command=lambda b=box: b.delete("1.0","end")).pack(pady=4)
+            self._log_boxes[key] = box
+
+        p.columnconfigure(0, weight=1)
+        p.columnconfigure(1, weight=1)
+        p.columnconfigure(2, weight=1)
+        p.rowconfigure(0, weight=1)
 
     # ── ヘルパー ──────────────────────────────────────────────
+    def _log(self, msg, tag="", key="mod"):
+        box = self._log_boxes.get(key, self._log_boxes["mod"])
+        def _do():
+            box.insert("end", msg+"\n", tag)
+            box.see("end")
+        self.after(0, _do)
+
+    def _set_status(self, msg):
+        self.after(0, lambda: self._prog_label.config(text=msg))
+
+    def _set_progress(self, v, maximum=None):
+        def _do():
+            if maximum is not None: self._progress.configure(maximum=maximum)
+            self._progress.configure(value=v)
+        self.after(0, _do)
+
     def _update_mode_ui(self):
         mode = self.dl_mode.get()
-        desc = {
-            DL_MODE_BOTH:       "Modrinthで検索 → なければCurseForgeも検索",
-            DL_MODE_MODRINTH:   "Modrinthのみ（APIキー不要）",
-            DL_MODE_CURSEFORGE: "CurseForgeのみ（APIキー必須）",
-        }.get(mode, "")
+        desc = {DL_BOTH:"Modrinthで検索 → なければCurseForgeも",
+                DL_MR:"Modrinthのみ（APIキー不要）",
+                DL_CF:"CurseForgeのみ（APIキー必須）"}.get(mode,"")
         self._mode_desc.config(text=f"  ℹ {desc}")
-        need_cf = mode in (DL_MODE_BOTH, DL_MODE_CURSEFORGE)
+        need_cf = mode in (DL_BOTH, DL_CF)
         state   = "normal" if need_cf else "disabled"
         self._cf_entry.config(state=state)
         self._cf_show_btn.config(state=state)
@@ -684,42 +667,69 @@ class App(tk.Tk):
         d = filedialog.askdirectory()
         if d: var.set(d)
 
-    def _log(self, msg, tag=""):
-        def _do():
-            self._log_box.insert("end", msg+"\n", tag)
-            self._log_box.see("end")
-        self.after(0, _do)
-
-    def _set_status(self, msg):
-        self.after(0, lambda: self._prog_label.config(text=msg))
-
-    def _set_progress(self, v, maximum=None):
-        def _do():
-            if maximum is not None:
-                self._progress.configure(maximum=maximum)
-            self._progress.configure(value=v)
-        self.after(0, _do)
-
     def _validate_cf(self):
-        mode = self.dl_mode.get()
-        if mode in (DL_MODE_BOTH, DL_MODE_CURSEFORGE) and not self.cf_api_key.get().strip():
-            messagebox.showerror("エラー", "CurseForgeを使用するにはAPIキーが必要です")
+        if self.dl_mode.get() in (DL_BOTH, DL_CF) and not self.cf_api_key.get().strip():
+            messagebox.showerror("エラー","CurseForgeを使用するにはAPIキーが必要です")
             return False
         return True
 
+    def _disable_combobox_wheel(self):
+        def _block(e): return "break"
+        def _bind(w):
+            if isinstance(w, ttk.Combobox):
+                w.bind("<MouseWheel>",_block)
+                w.bind("<Button-4>",  _block)
+                w.bind("<Button-5>",  _block)
+            for c in w.winfo_children(): _bind(c)
+        _bind(self)
+
     # ── 読み込み ──────────────────────────────────────────────
+    def _load_dir(self, dir_var, ext, panel, key, kind_label):
+        d = dir_var.get().strip()
+        if not d or not os.path.isdir(d):
+            messagebox.showerror("エラー",
+                f"有効な{kind_label}フォルダを指定してください\n（設定タブでフォルダを選択）")
+            return False
+        files = sorted(f for f in os.listdir(d) if f.lower().endswith(ext))
+        if not files:
+            messagebox.showinfo("情報", f"{ext}ファイルが見つかりませんでした")
+            return False
+        self._log(f"📂 {kind_label}: {len(files)} 個を解析中...", "info", key)
+        items = []
+        for fname in files:
+            path = os.path.join(d, fname)
+            if ext == ".jar":
+                info = read_jar_meta(path)
+            else:
+                info = {"filename":fname, "path":path,
+                        "name":os.path.splitext(fname)[0],
+                        "mod_id":"","version":"","loader":""}
+            items.append(info)
+        panel.populate(items)
+        self._log(f"✅ {kind_label}: {len(items)} 件読み込み完了", "ok", key)
+        return True
+
+    def _load_mods(self):
+        self._load_dir(self.mods_dir, ".jar", self._mod_panel, "mod", "Mod")
+
+    def _load_rp(self):
+        self._load_dir(self.rp_dir, ".zip", self._rp_panel, "rp", "ResourcePack")
+
+    def _load_shader(self):
+        self._load_dir(self.shader_dir, ".zip", self._shader_panel, "shader", "Shader")
+
+    def _load_all(self):
+        self._load_mods()
+        self._load_rp()
+        self._load_shader()
+        self._nb.select(1)
+
     def _load_from_profile(self):
-        """起動構成フォルダから mods / resourcepacks / shaderpacks を自動検出"""
         base = self.profile_dir.get().strip()
         if not base or not os.path.isdir(base):
-            messagebox.showerror("エラー", "有効な起動構成フォルダを指定してください")
+            messagebox.showerror("エラー","有効な起動構成フォルダを指定してください")
             return
-        # サブフォルダ候補
-        mapping = {
-            "mods":         self.mods_dir,
-            "resourcepacks":self.rp_dir,
-            "shaderpacks":  self.shader_dir,
-        }
+        mapping = {"mods":self.mods_dir, "resourcepacks":self.rp_dir, "shaderpacks":self.shader_dir}
         found = []
         for sub, var in mapping.items():
             path = os.path.join(base, sub)
@@ -728,73 +738,29 @@ class App(tk.Tk):
                 found.append(sub)
         if not found:
             messagebox.showwarning("確認",
-                "mods / resourcepacks / shaderpacks フォルダが見つかりませんでした\n"
-                f"場所: {base}")
+                f"mods / resourcepacks / shaderpacks が見つかりませんでした\n{base}")
             return
-        self._log(f"🚀 起動構成を検出: {base}", "info")
+        self._log(f"🚀 起動構成検出: {base}", "info", "mod")
         for sub in found:
-            self._log(f"   ✓ {sub}", "ok")
-        # 全部読み込む
-        self._load_mods()
-        self._load_rp()
-        self._load_shader()
-
-    def _load_dir(self, dir_var, ext, panel, kind_label):
-        d = dir_var.get().strip()
-        if not d or not os.path.isdir(d):
-            messagebox.showerror("エラー", f"有効な{kind_label}フォルダを指定してください\n（設定タブでフォルダを選択してください）")
-            return
-        files = [f for f in os.listdir(d) if f.lower().endswith(ext)]
-        if not files:
-            messagebox.showinfo("情報", f"{ext}ファイルが見つかりませんでした")
-            return
-        self._log(f"📂 {kind_label}: {len(files)} 個を解析中...", "info")
-        items = []
-        for f in sorted(files):
-            path = os.path.join(d, f)
-            if ext == ".jar":
-                info = read_jar_meta(path)
-            else:
-                name = os.path.splitext(f)[0]
-                info = {"filename": f, "path": path, "name": name,
-                        "mod_id": "", "version": "", "loader": ""}
-            items.append(info)
-        panel.populate(items)
-        self._log(f"✅ {kind_label}: {len(items)} 件読み込み完了", "ok")
-
-    def _load_mods(self):
-        self._load_dir(self.mods_dir, ".jar", self._mod_panel, "Mod")
-
-    def _load_rp(self):
-        self._load_dir(self.rp_dir, ".zip", self._rp_panel, "ResourcePack")
-
-    def _load_shader(self):
-        self._load_dir(self.shader_dir, ".zip", self._shader_panel, "Shader")
-
-    def _load_all(self):
-        """Mod・ResourcePack・Shaderを全て読み込む"""
-        self._load_mods()
-        self._load_rp()
-        self._load_shader()
-        self._nb.select(1)  # 一覧タブへ
+            self._log(f"   ✓ {sub}", "ok", "mod")
+        self._load_all()
 
     # ── アップデート ──────────────────────────────────────────
-    def _build_tasks(self, panel):
-        """パネルの選択済みアイテムをタスクリストに変換"""
-        dir_map = {
-            MR_TYPE_MOD:    self.mods_dir.get(),
-            MR_TYPE_RP:     self.rp_dir.get(),
-            MR_TYPE_SHADER: self.shader_dir.get(),
-        }
-        out_dir = dir_map[panel.mr_type]
-        return [(it, out_dir, panel.mr_type, panel.cf_class)
-                for it in panel.get_selected()]
+    def _kind_key(self, mr_type):
+        return {"mod":"mod","resourcepack":"rp","shader":"shader"}.get(mr_type,"mod")
 
-    def _start_panel(self, panel):
+    def _build_tasks(self, panel):
+        dir_map = {MR_MOD:self.mods_dir.get(), MR_RP:self.rp_dir.get(),
+                   MR_SHADE:self.shader_dir.get()}
+        out_dir  = dir_map[panel.mr_type]
+        cf_class = {MR_MOD:CF_MOD, MR_RP:CF_RP, MR_SHADE:CF_SHADE}[panel.mr_type]
+        return [(it, out_dir, panel.mr_type, cf_class) for it in panel.get_selected()]
+
+    def _start_panel(self, panel, label):
         if not self._validate_cf(): return
         tasks = self._build_tasks(panel)
         if not tasks:
-            messagebox.showinfo("情報", "アイテムが選択されていません"); return
+            messagebox.showinfo("情報","アイテムが選択されていません"); return
         self._run_tasks(tasks)
 
     def _start_all(self):
@@ -803,127 +769,146 @@ class App(tk.Tk):
                  self._build_tasks(self._rp_panel) +
                  self._build_tasks(self._shader_panel))
         if not tasks:
-            messagebox.showinfo("情報", "アイテムが選択されていません"); return
+            messagebox.showinfo("情報","アイテムが選択されていません"); return
         self._run_tasks(tasks)
 
     def _run_tasks(self, tasks):
         if self._running:
-            messagebox.showwarning("実行中", "現在アップデート中です"); return
+            messagebox.showwarning("実行中","現在アップデート中です"); return
         self._running = True
         self._set_progress(0, len(tasks))
         self._nb.select(2)
-        mc_ver = self.target_version.get()
-        loader = self.target_loader.get()
-        mode   = self.dl_mode.get()
-        cf_key = self.cf_api_key.get().strip()
         threading.Thread(target=self._worker,
-                          args=(tasks, mc_ver, loader, mode, cf_key),
+                          args=(tasks, self.target_version.get(),
+                                self.target_loader.get(),
+                                self.dl_mode.get(),
+                                self.cf_api_key.get().strip()),
                           daemon=True).start()
 
     # ── ワーカー ──────────────────────────────────────────────
     def _worker(self, tasks, mc_ver, loader, mode, cf_key):
-        delete_old    = self.delete_old.get()
-        delete_failed = self.delete_failed.get()
-        auto_deps     = self.auto_deps.get()
-        ok_list = []; fail_list = []
-        done_deps = set()
+        delete_old   = self.delete_old.get()
+        delete_fail  = self.delete_failed.get()
+        auto_deps    = self.auto_deps.get()
+        done_deps    = set()
+
+        # カテゴリ別に結果を収集
+        results = {"mod":{"ok":[],"fail":[]},
+                   "rp": {"ok":[],"fail":[]},
+                   "shader":{"ok":[],"fail":[]}}
 
         for i, (item, out_dir, mr_type, cf_class) in enumerate(tasks):
             name = item.get("name", item["filename"])
-            kind = {"mod":"Mod","resourcepack":"RP","shader":"Shader"}.get(mr_type, mr_type)
+            key  = self._kind_key(mr_type)
+            kind = {"mod":"Mod","rp":"RP","shader":"Shader"}[key]
+
             self._set_status(f"{i+1}/{len(tasks)}: [{kind}] {name[:22]}")
-            self._log(f"\n── [{kind}] {name} ──", "info")
+            self._log(f"\n── {name} ──", "info", key)
+
+            def _log(msg, tag="", _key=key): self._log(msg, tag, _key)
 
             dl_url, dl_fname, source, version_obj = find_dl_info(
                 name, item.get("mod_id",""), item.get("path"),
                 mc_ver, loader, mode, cf_key,
-                mr_type, cf_class, self._log)
+                mr_type, cf_class, _log)
 
             if dl_url and dl_fname:
                 dest    = os.path.join(out_dir, dl_fname)
                 success = self._do_download(dl_url, dest, name, source,
-                                             item.get("path"), delete_old, delete_failed)
+                                             item.get("path"), delete_old, delete_fail, key)
                 if success:
-                    ok_list.append(f"[{kind}] {name}")
+                    results[key]["ok"].append(name)
                     # 前提Mod
-                    if mr_type == MR_TYPE_MOD and auto_deps and version_obj:
+                    if mr_type == MR_MOD and auto_deps and version_obj:
                         for dep_pid in mr_get_deps(version_obj, mc_ver, loader):
                             if dep_pid in done_deps: continue
                             done_deps.add(dep_pid)
-                            self._log(f"  🔗 依存Mod: {dep_pid}", "info")
+                            self._log(f"  🔗 依存Mod: {dep_pid}", "info", key)
                             try:
                                 vs = mr_get_versions(dep_pid, mc_ver, loader)
                                 if vs:
-                                    dep_files = vs[0].get("files", [])
                                     du = df = None
-                                    for fi in dep_files:
+                                    for fi in vs[0].get("files",[]):
                                         if fi.get("primary") or not du:
-                                            du, df = fi["url"], fi["filename"]
+                                            du,df = fi["url"],fi["filename"]
                                             if fi.get("primary"): break
                                     if du and df:
                                         ddest = os.path.join(out_dir, df)
                                         if os.path.exists(ddest):
-                                            self._log(f"  🔗 既存: {df}", "ok")
+                                            self._log(f"  🔗 既存: {df}", "ok", key)
                                         else:
                                             self._do_download(du, ddest, df, "Modrinth",
-                                                               None, False, delete_failed)
-                                            dep_item = {"filename": df, "path": ddest,
-                                                        "name": df, "mod_id":"", "version":"","loader":""}
+                                                               None, False, delete_fail, key)
+                                            dep_item = {"filename":df,"path":ddest,
+                                                        "name":df,"mod_id":"","version":"","loader":""}
                                             self.after(0, lambda di=dep_item:
-                                                self._mod_panel.add_item(di, "dep"))
-                                            ok_list.append(f"[依存] {df}")
+                                                self._mod_panel.add_item(di,"dep"))
+                                            results[key]["ok"].append(f"[依存] {df}")
                             except Exception as e:
-                                self._log(f"  🔗 依存エラー: {e}", "err")
+                                self._log(f"  🔗 依存エラー: {e}", "err", key)
                 else:
-                    fail_list.append(name)
+                    results[key]["fail"].append(name)
             else:
-                fail_list.append(name)
-                self._log(f"  ❌ スキップ（対応バージョンなし）", "err")
-                if delete_failed and item.get("path") and os.path.exists(item["path"]):
+                results[key]["fail"].append(name)
+                self._log(f"  ❌ スキップ（対応バージョンなし）", "err", key)
+                if delete_fail and item.get("path") and os.path.exists(item["path"]):
                     try:
                         os.remove(item["path"])
-                        self._log(f"  🗑 失敗ファイル削除: {item['filename']}", "warn")
+                        self._log(f"  🗑 失敗ファイル削除: {item['filename']}", "warn", key)
                     except Exception: pass
 
-            self._set_progress(i + 1)
+            self._set_progress(i+1)
 
-        # サマリー
-        self._log(f"\n{'═'*50}", "info")
-        self._log(f"✅ 成功: {len(ok_list)} 件", "ok")
-        for n in ok_list: self._log(f"   ✓ {n}", "ok")
-        if fail_list:
-            self._log(f"\n❌ 失敗: {len(fail_list)} 件", "err")
-            for n in fail_list: self._log(f"   ✗ {n}", "err")
-        else:
-            self._log("\n🎉 全て完了しました！", "ok")
+        # ── カテゴリ別サマリー ──
+        total_ok   = sum(len(v["ok"])   for v in results.values())
+        total_fail = sum(len(v["fail"]) for v in results.values())
+
+        for key, lbl in [("mod","🧩 Mod"), ("rp","🎨 ResourcePack"), ("shader","✨ Shader")]:
+            ok   = results[key]["ok"]
+            fail = results[key]["fail"]
+            if not ok and not fail: continue
+            self._log(f"\n{'═'*40}", "info", key)
+            self._log(f"{lbl} 結果", "info", key)
+            self._log(f"✅ 成功: {len(ok)} 件", "ok", key)
+            for n in ok:   self._log(f"   ✓ {n}", "ok", key)
+            if fail:
+                self._log(f"❌ 失敗: {len(fail)} 件", "err", key)
+                for n in fail: self._log(f"   ✗ {n}", "err", key)
+            else:
+                self._log("🎉 全て完了！", "ok", key)
+
         self._set_status("完了")
         self._running = False
-        msg = f"✅ 成功: {len(ok_list)} 件\n❌ 失敗: {len(fail_list)} 件"
-        if fail_list:
-            msg += "\n\n失敗:\n" + "\n".join(f"• {n}" for n in fail_list)
+
+        msg = f"✅ 成功: {total_ok} 件\n❌ 失敗: {total_fail} 件"
+        if total_fail:
+            msg += "\n"
+            for key, lbl in [("mod","🧩 Mod"),("rp","🎨 ResourcePack"),("shader","✨ Shader")]:
+                if results[key]["fail"]:
+                    msg += f"\n{lbl}:\n" + "\n".join(f"  • {n}" for n in results[key]["fail"])
         self.after(0, lambda: messagebox.showinfo("完了", msg))
 
-    def _do_download(self, url, dest, name, source, old_path, delete_old, delete_failed):
+    def _do_download(self, url, dest, name, source, old_path,
+                     delete_old, delete_fail, log_key):
         try:
-            self._log(f"  ⬇ DL中 [{source}]: {os.path.basename(dest)}")
-            def _pcb(p):
-                self._set_status(f"DL: {name[:18]} {p*100:.0f}%")
+            self._log(f"  ⬇ DL中 [{source}]: {os.path.basename(dest)}", "", log_key)
+            def _pcb(p): self._set_status(f"DL: {name[:18]} {p*100:.0f}%")
             download_file(url, dest, _pcb)
             if delete_old and old_path and os.path.exists(old_path):
                 if os.path.abspath(dest) != os.path.abspath(old_path):
                     os.remove(old_path)
-                    self._log(f"  🗑 旧ファイル削除: {os.path.basename(old_path)}")
-            self._log(f"  ✅ 完了", "ok")
+                    self._log(f"  🗑 旧ファイル削除: {os.path.basename(old_path)}", "", log_key)
+            self._log(f"  ✅ 完了", "ok", log_key)
             return True
         except Exception as e:
-            self._log(f"  ❌ DL失敗: {e}", "err")
+            self._log(f"  ❌ DL失敗: {e}", "err", log_key)
             if os.path.exists(dest):
                 try: os.remove(dest)
                 except Exception: pass
-            if delete_failed and old_path and os.path.exists(old_path):
+            if delete_fail and old_path and os.path.exists(old_path):
                 try:
                     os.remove(old_path)
-                    self._log(f"  🗑 失敗ファイル削除: {os.path.basename(old_path)}", "warn")
+                    self._log(f"  🗑 失敗ファイル削除: {os.path.basename(old_path)}", "warn", log_key)
                 except Exception: pass
             return False
 
@@ -936,11 +921,11 @@ class App(tk.Tk):
             self._ver_cb.set(cur if cur in versions else versions[0])
             self.target_version.set(self._ver_cb.get())
             if versions == MC_VERSIONS_FALLBACK:
-                self._ver_status.config(text="⚠ オフライン（固定リスト）", foreground=YEL)
-                self._log("⚠ バージョン取得失敗 → フォールバック使用", "warn")
+                self._ver_status.config(text="⚠ オフライン", foreground=YEL)
+                self._log("⚠ バージョン取得失敗 → フォールバック使用", "warn", "mod")
             else:
                 self._ver_status.config(text=f"✅ {len(versions)} 件", foreground=GRN)
-                self._log(f"✅ MCバージョン {len(versions)} 件取得（最新: {versions[0]}）", "ok")
+                self._log(f"✅ MCバージョン {len(versions)} 件取得（最新: {versions[0]}）","ok","mod")
         self.after(0, _upd)
 
     # ── 終了 ──────────────────────────────────────────────────
