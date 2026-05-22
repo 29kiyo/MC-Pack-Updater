@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import urllib.request
 import urllib.parse
+import webbrowser
 
 # ── 定数 ──────────────────────────────────────────────────────
 MODRINTH_API   = "https://api.modrinth.com/v2"
@@ -401,8 +402,22 @@ class App(tk.Tk):
 
         self._apply_style()
         self._build_ui()
+        self._disable_combobox_mousewheel()   # ← ホイール誤操作を防止
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         threading.Thread(target=self._fetch_versions_bg, daemon=True).start()
+
+    def _disable_combobox_mousewheel(self):
+        """全コンボボックスのマウスホイールによる値変更を無効化"""
+        def _block(e):
+            return "break"
+        def _bind_all(widget):
+            if isinstance(widget, ttk.Combobox):
+                widget.bind("<MouseWheel>", _block)
+                widget.bind("<Button-4>",   _block)
+                widget.bind("<Button-5>",   _block)
+            for child in widget.winfo_children():
+                _bind_all(child)
+        _bind_all(self)
 
     # ── スタイル ──────────────────────────────────────────────
     def _apply_style(self):
@@ -534,7 +549,7 @@ class App(tk.Tk):
                                         command=self._toggle_cf_show, width=5)
         self._cf_show_btn.pack(side="left", padx=(0,6))
         ttk.Button(r4, text="取得方法 ↗",
-                    command=lambda: __import__("webbrowser").open(
+                    command=lambda: webbrowser.open(
                         "https://console.curseforge.com/")).pack(side="left")
         self._update_mode_ui()
 
@@ -548,8 +563,20 @@ class App(tk.Tk):
         ]:
             ttk.Checkbutton(lf4, text=txt, variable=var).pack(padx=10, pady=2, anchor="w")
 
-        # ── 一括ボタン ──
-        br = ttk.Frame(f); br.pack(fill="x", pady=(4,0))
+        # ── 操作ボタン ──
+        lf5 = ttk.LabelFrame(f, text="▶  操作")
+        lf5.pack(fill="x", pady=(0,4))
+        for lbl, load_cmd, upd_cmd in [
+            ("🧩 Mod",          self._load_mods,   lambda: self._start_panel(self._mod_panel)),
+            ("🎨 ResourcePack", self._load_rp,     lambda: self._start_panel(self._rp_panel)),
+            ("✨ Shader",        self._load_shader, lambda: self._start_panel(self._shader_panel)),
+        ]:
+            row = ttk.Frame(lf5); row.pack(fill="x", padx=10, pady=3)
+            ttk.Label(row, text=lbl, width=16).pack(side="left")
+            ttk.Button(row, text="📂 読み込む",     command=load_cmd).pack(side="left", padx=(0,6))
+            ttk.Button(row, text="⬇ アップデート", command=upd_cmd).pack(side="left")
+
+        br = ttk.Frame(f); br.pack(fill="x", pady=(6,0))
         ttk.Button(br, text="🔄 全て一括アップデート",
                     command=self._start_all).pack(side="left")
 
