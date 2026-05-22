@@ -13,7 +13,7 @@ import webbrowser
 # ── 定数 ──────────────────────────────────────────────────────
 MODRINTH_API   = "https://api.modrinth.com/v2"
 CURSEFORGE_API = "https://api.curseforge.com/v1"
-CONFIG_FILE    = os.path.join(os.path.expanduser("~"), ".mc_mod_updater_config.json")
+CONFIG_FILE    = os.path.join(os.path.expanduser("~"), ".mc_pack_updater_config.json")
 
 MC_VERSIONS_FALLBACK = [
     "1.21.4","1.21.3","1.21.1","1.21",
@@ -84,13 +84,13 @@ def save_config(data):
 # ── HTTP ──────────────────────────────────────────────────────
 def http_get(url, headers=None):
     req = urllib.request.Request(url, headers=headers or {})
-    req.add_header("User-Agent", "MC-Mod-Updater/5.0")
+    req.add_header("User-Agent", "MC-Pack-Updater/5.0")
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode())
 
 def download_file(url, dest, progress_cb=None):
     req = urllib.request.Request(url)
-    req.add_header("User-Agent", "MC-Mod-Updater/5.0")
+    req.add_header("User-Agent", "MC-Pack-Updater/5.0")
     with urllib.request.urlopen(req, timeout=60) as r:
         total = int(r.headers.get("Content-Length", 0))
         done  = 0
@@ -205,7 +205,7 @@ def mr_get_deps(version_obj, mc_ver, loader):
 # ── CurseForge ────────────────────────────────────────────────
 def _cf_req(url, api_key):
     req = urllib.request.Request(url)
-    req.add_header("User-Agent","MC-Mod-Updater/5.0")
+    req.add_header("User-Agent","MC-Pack-Updater/5.0")
     req.add_header("x-api-key", api_key)
     req.add_header("Accept","application/json")
     with urllib.request.urlopen(req, timeout=15) as r:
@@ -404,7 +404,7 @@ class FileListPanel(ttk.Frame):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("⛏ MC Mod Updater")
+        self.title("⛏ MC Pack Updater")
         self.geometry("1150x780")
         self.configure(bg=BG)
         self.resizable(True, True)
@@ -474,7 +474,7 @@ class App(tk.Tk):
 
     # ── UI ────────────────────────────────────────────────────
     def _build_ui(self):
-        ttk.Label(self, text="⛏  MC Mod Updater", style="Hdr.TLabel").pack(pady=(12,2))
+        ttk.Label(self, text="⛏  MC Pack Updater", style="Hdr.TLabel").pack(pady=(12,2))
         ttk.Label(self, text="Mod / ResourcePack / Shader を一括アップデート",
                    style="Sub.TLabel").pack(pady=(0,8))
 
