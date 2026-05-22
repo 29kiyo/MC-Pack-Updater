@@ -407,7 +407,8 @@ class App(tk.Tk):
         threading.Thread(target=self._fetch_versions_bg, daemon=True).start()
 
     def _disable_combobox_mousewheel(self):
-        """全コンボボックスのマウスホイールによる値変更を無効化"""
+        """コンボボックスのマウスホイールによる値変更を無効化。
+           設定タブのスクロールはコンボボックス以外でのみ動作させる。"""
         def _block(e):
             return "break"
         def _bind_all(widget):
@@ -485,11 +486,39 @@ class App(tk.Tk):
 
     # ── 設定タブ ──────────────────────────────────────────────
     def _build_settings(self, p):
-        f = ttk.Frame(p); f.pack(fill="both", expand=True, padx=14, pady=10)
+        # スクロール可能にするためCanvasを使う
+        canvas = tk.Canvas(p, bg=BG, highlightthickness=0)
+        vsb    = ttk.Scrollbar(p, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        f = ttk.Frame(canvas)
+        win_id = canvas.create_window((0, 0), window=f, anchor="nw")
+
+        def _on_frame_resize(e):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        def _on_canvas_resize(e):
+            canvas.itemconfig(win_id, width=e.width)
+        f.bind("<Configure>",      _on_frame_resize)
+        canvas.bind("<Configure>", _on_canvas_resize)
+
+        # マウスホイールでスクロール（Combobox以外で動くよう設定タブ全体にバインド）
+        def _on_wheel(e):
+            canvas.yview_scroll(int(-1*(e.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_wheel)
+        # タブ切り替え時にホイールバインドを適切に切り替える
+        def _bind_wheel(e=None):
+            canvas.bind_all("<MouseWheel>", _on_wheel)
+        def _unbind_wheel(e=None):
+            canvas.unbind_all("<MouseWheel>")
+        p.bind("<Visibility>", _bind_wheel)
+
+        PAD = dict(pady=(0, 8))
 
         # ── 起動構成フォルダ ──
         lf0 = ttk.LabelFrame(f, text="🚀  起動構成フォルダ（1つ指定で mods / resourcepacks / shaderpacks を自動検出）")
-        lf0.pack(fill="x", pady=(0,8))
+        lf0.pack(fill="x", padx=14, **PAD)
         r0 = ttk.Frame(lf0); r0.pack(fill="x", padx=10, pady=8)
         ttk.Entry(r0, textvariable=self.profile_dir).pack(
             side="left", fill="x", expand=True, padx=(0,6))
@@ -500,13 +529,12 @@ class App(tk.Tk):
 
         # ── 個別フォルダ ──
         lf1 = ttk.LabelFrame(f, text="📁  個別フォルダ指定")
-        lf1.pack(fill="x", pady=(0,8))
-        folders = [
+        lf1.pack(fill="x", padx=14, **PAD)
+        for lbl, var in [
             ("🧩 Mods",         self.mods_dir),
             ("🎨 ResourcePacks", self.rp_dir),
             ("✨ Shaders",       self.shader_dir),
-        ]
-        for lbl, var in folders:
+        ]:
             row = ttk.Frame(lf1); row.pack(fill="x", padx=10, pady=3)
             ttk.Label(row, text=lbl, width=18).pack(side="left")
             ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True, padx=(0,6))
@@ -515,7 +543,7 @@ class App(tk.Tk):
 
         # ── バージョン ──
         lf2 = ttk.LabelFrame(f, text="🎯  アップデート先")
-        lf2.pack(fill="x", pady=(0,8))
+        lf2.pack(fill="x", padx=14, **PAD)
         r2 = ttk.Frame(lf2); r2.pack(fill="x", padx=10, pady=8)
         ttk.Label(r2, text="MCバージョン:").pack(side="left")
         self._ver_cb = ttk.Combobox(r2, textvariable=self.target_version,
@@ -530,7 +558,7 @@ class App(tk.Tk):
 
         # ── DL設定 ──
         lf3 = ttk.LabelFrame(f, text="🌐  ダウンロード設定")
-        lf3.pack(fill="x", pady=(0,8))
+        lf3.pack(fill="x", padx=14, **PAD)
         r3 = ttk.Frame(lf3); r3.pack(fill="x", padx=10, pady=(8,4))
         ttk.Label(r3, text="モード:").pack(side="left")
         self._dl_mode_cb = ttk.Combobox(r3, textvariable=self.dl_mode,
@@ -555,17 +583,28 @@ class App(tk.Tk):
 
         # ── オプション ──
         lf4 = ttk.LabelFrame(f, text="⚙  オプション")
-        lf4.pack(fill="x", pady=(0,10))
+        lf4.pack(fill="x", padx=14, **PAD)
         for txt, var in [
-            ("アップデート後に古いファイルを削除する",             self.delete_old),
+            ("アップデート後に古いファイルを削除する",                    self.delete_old),
             ("ダウンロード失敗したファイルを削除する（壊れたファイル除去）", self.delete_failed),
-            ("前提Modが足りなければ自動でダウンロードする",        self.auto_deps),
+            ("前提Modが足りなければ自動でダウンロードする",               self.auto_deps),
         ]:
             ttk.Checkbutton(lf4, text=txt, variable=var).pack(padx=10, pady=2, anchor="w")
 
         # ── 操作ボタン ──
         lf5 = ttk.LabelFrame(f, text="▶  操作")
-        lf5.pack(fill="x", pady=(0,4))
+        lf5.pack(fill="x", padx=14, pady=(0,4))
+
+        # 全て読み込む / 全て一括アップデート
+        top_row = ttk.Frame(lf5); top_row.pack(fill="x", padx=10, pady=(6,4))
+        ttk.Button(top_row, text="📂 全て読み込む",
+                    command=self._load_all).pack(side="left", padx=(0,8))
+        ttk.Button(top_row, text="🔄 全て一括アップデート",
+                    command=self._start_all).pack(side="left")
+
+        ttk.Separator(lf5, orient="horizontal").pack(fill="x", padx=10, pady=4)
+
+        # 個別ボタン
         for lbl, load_cmd, upd_cmd in [
             ("🧩 Mod",          self._load_mods,   lambda: self._start_panel(self._mod_panel)),
             ("🎨 ResourcePack", self._load_rp,     lambda: self._start_panel(self._rp_panel)),
@@ -576,9 +615,9 @@ class App(tk.Tk):
             ttk.Button(row, text="📂 読み込む",     command=load_cmd).pack(side="left", padx=(0,6))
             ttk.Button(row, text="⬇ アップデート", command=upd_cmd).pack(side="left")
 
-        br = ttk.Frame(f); br.pack(fill="x", pady=(6,0))
-        ttk.Button(br, text="🔄 全て一括アップデート",
-                    command=self._start_all).pack(side="left")
+        # 下余白
+        ttk.Frame(f, height=10).pack()
+
 
     # ── 一覧タブ（3列） ───────────────────────────────────────
     def _build_lists(self, p):
@@ -731,6 +770,13 @@ class App(tk.Tk):
 
     def _load_shader(self):
         self._load_dir(self.shader_dir, ".zip", self._shader_panel, "Shader")
+
+    def _load_all(self):
+        """Mod・ResourcePack・Shaderを全て読み込む"""
+        self._load_mods()
+        self._load_rp()
+        self._load_shader()
+        self._nb.select(1)  # 一覧タブへ
 
     # ── アップデート ──────────────────────────────────────────
     def _build_tasks(self, panel):
