@@ -740,13 +740,105 @@ class App(tk.Tk):
         self.after(0, _do)
 
     def _show_api_guide(self):
-        """API Key Guide.pdf を既定のアプリで開く"""
+        """API Key Guide.pdf をソフト内のウィンドウで表示する（pymupdf使用）"""
         base     = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
         pdf_path = os.path.join(base, "API Key Guide.pdf")
-        if os.path.exists(pdf_path):
-            os.startfile(pdf_path)
-        else:
+
+        if not os.path.exists(pdf_path):
             webbrowser.open("https://console.curseforge.com/")
+            return
+
+        try:
+            import fitz  # pymupdf
+        except ImportError:
+            # pymupdfが使えない場合は既定アプリで開く
+            os.startfile(pdf_path)
+            return
+
+        # ── ウィンドウ ──
+        win = tk.Toplevel(self)
+        win.title("API Key 取得方法")
+        win.configure(bg=BG)
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        ww = int(sw * 0.75)
+        wh = int(sh * 0.85)
+        win.geometry(f"{ww}x{wh}+{(sw-ww)//2}+{(sh-wh)//2}")
+        win.resizable(True, True)
+
+        # PDFを開いてページ画像を生成
+        doc   = fitz.open(pdf_path)
+        pages = []  # PhotoImage のリスト
+
+        def render_page(idx, width):
+            page  = doc[idx]
+            zoom  = width / page.rect.width
+            mat   = fitz.Matrix(zoom, zoom)
+            pix   = page.get_pixmap(matrix=mat, alpha=False)
+            img   = tk.PhotoImage(data=pix.tobytes("ppm"))
+            return img
+
+        # ── ツールバー ──
+        toolbar = ttk.Frame(win)
+        toolbar.pack(fill="x", padx=8, pady=(8,4))
+
+        page_var  = tk.IntVar(value=1)
+        total     = len(doc)
+        page_label = ttk.Label(toolbar, text=f"/ {total} ページ")
+
+        def go_prev():
+            if page_var.get() > 1:
+                page_var.set(page_var.get() - 1)
+                _draw()
+
+        def go_next():
+            if page_var.get() < total:
+                page_var.set(page_var.get() + 1)
+                _draw()
+
+        ttk.Button(toolbar, text="✕ 閉じる", command=win.destroy).pack(side="right", padx=(4,0))
+        ttk.Button(toolbar, text="▶ 次",     command=go_next).pack(side="right", padx=(4,0))
+        ttk.Button(toolbar, text="◀ 前",     command=go_prev).pack(side="right", padx=(4,0))
+        page_label.pack(side="right", padx=(4,0))
+        ttk.Label(toolbar, text="ページ:").pack(side="right")
+        ttk.Spinbox(toolbar, from_=1, to=total, textvariable=page_var,
+                     width=4, command=_draw if False else lambda: None).pack(side="right", padx=(4,4))
+
+        # ── スクロール可能なCanvas ──
+        frame = ttk.Frame(win)
+        frame.pack(fill="both", expand=True, padx=8, pady=(0,8))
+
+        canvas = tk.Canvas(frame, bg="#808080", highlightthickness=0)
+        vsb    = ttk.Scrollbar(frame, orient="vertical",   command=canvas.yview)
+        hsb    = ttk.Scrollbar(frame, orient="horizontal", command=canvas.xview)
+        canvas.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        vsb.pack(side="right",  fill="y")
+        hsb.pack(side="bottom", fill="x")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        img_id  = [None]
+        img_ref = [None]  # GC防止
+
+        def _draw(event=None):
+            canvas.update_idletasks()
+            width = max(canvas.winfo_width(), 400)
+            idx   = page_var.get() - 1
+            img   = render_page(idx, width)
+            img_ref[0] = img
+            canvas.delete("all")
+            canvas.create_image(width//2, 0, anchor="n", image=img)
+            canvas.configure(scrollregion=(0, 0, width, img.height()))
+            canvas.yview_moveto(0)
+
+        canvas.bind("<Configure>", _draw)
+        canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+
+        # Spinboxのページ変更
+        def _on_spin(*_):
+            _draw()
+        page_var.trace_add("write", _on_spin)
+
+        win.after(100, _draw)
 
     def _update_mode_ui(self):
         mode = self.dl_mode.get()
