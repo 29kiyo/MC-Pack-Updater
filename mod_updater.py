@@ -549,8 +549,10 @@ class App(tk.Tk):
             side="left", fill="x", expand=True, padx=(0,6))
         ttk.Button(r0, text="参照",
                     command=lambda: self._browse(self.profile_dir)).pack(side="left",padx=(0,6))
-        ttk.Button(r0, text="自動検出して読み込む",
+        ttk.Button(r0, text="📂 読み込む",
                     command=self._load_from_profile).pack(side="left",padx=(0,6))
+        ttk.Button(r0, text="⬇ ダウンロード",
+                    command=self._start_all).pack(side="left",padx=(0,6))
         ttk.Button(r0, text="✕ リセット",
                     command=lambda: self.profile_dir.set("")).pack(side="left")
 
@@ -738,53 +740,13 @@ class App(tk.Tk):
         self.after(0, _do)
 
     def _show_api_guide(self):
-        """API Key Guide.pdf をポップアップで表示する"""
-        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        """API Key Guide.pdf を既定のアプリで開く"""
+        base     = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
         pdf_path = os.path.join(base, "API Key Guide.pdf")
-
-        if not os.path.exists(pdf_path):
-            # PDFが見つからない場合はブラウザで開く
-            webbrowser.open("https://console.curseforge.com/")
-            return
-
-        win = tk.Toplevel(self)
-        win.title("CurseForge API Key Guide")
-        win.configure(bg=BG)
-
-        # ウィンドウサイズを画面の80%に設定
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
-        ww = int(sw * 0.8)
-        wh = int(sh * 0.8)
-        wx = (sw - ww) // 2
-        wy = (sh - wh) // 2
-        win.geometry(f"{ww}x{wh}+{wx}+{wy}")
-        win.resizable(True, True)
-
-        # 閉じるボタン
-        btn_frame = ttk.Frame(win)
-        btn_frame.pack(fill="x", padx=8, pady=(8,4))
-        ttk.Button(btn_frame, text="✕ 閉じる",
-                    command=win.destroy).pack(side="right")
-
-        # PDF をシステムのデフォルトアプリで開く
-        try:
+        if os.path.exists(pdf_path):
             os.startfile(pdf_path)
-            ttk.Label(win,
-                       text=f"PDFを外部アプリで開きました。\n{pdf_path}",
-                       font=("Segoe UI", 11)).pack(expand=True)
-            win.destroy()
-            return
-        except Exception:
-            pass
-
-        # フォールバック：tkinterでPDFパスを表示
-        ttk.Label(win,
-                   text="PDFビューアが見つかりませんでした。\n以下のパスから直接開いてください：",
-                   font=("Segoe UI", 11)).pack(pady=(20,8))
-        path_var = tk.StringVar(value=pdf_path)
-        ttk.Entry(win, textvariable=path_var, state="readonly",
-                   width=60).pack(padx=20)
+        else:
+            webbrowser.open("https://console.curseforge.com/")
 
     def _update_mode_ui(self):
         mode = self.dl_mode.get()
