@@ -408,12 +408,18 @@ class App(tk.Tk):
         super().__init__()
         self.title("⛏ MC Pack Updater")
 
-        # ウィンドウ・タスクバーのアイコン設定
+        # タスクバー・ウィンドウアイコン設定
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "MCPackUpdater.App.1.0")
+        except Exception:
+            pass
         try:
             base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
             icon_path = os.path.join(base, "icon.ico")
             if os.path.exists(icon_path):
-                self.iconbitmap(icon_path)
+                self.iconbitmap(default=icon_path)
         except Exception:
             pass
         self.geometry("1150x780")
