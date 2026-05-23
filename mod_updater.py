@@ -793,6 +793,10 @@ class App(tk.Tk):
                 w.bind("<Button-5>",  _block)
             for c in w.winfo_children(): _bind(c)
         _bind(self)
+        # バージョンコンボボックスは values 更新後も確実にブロック
+        self._ver_cb.bind("<MouseWheel>", _block)
+        self._ver_cb.bind("<Button-4>",   _block)
+        self._ver_cb.bind("<Button-5>",   _block)
 
     # ── 読み込み ──────────────────────────────────────────────
     def _load_dir(self, dir_var, ext, panel, key, kind_label):
@@ -1046,6 +1050,10 @@ class App(tk.Tk):
             self._ver_cb.set(cur if cur in versions else versions[0])
             self.target_version.set(self._ver_cb.get())
             self._filter_versions()  # Loaderに応じてフィルタ適用
+            # values更新後にホイールを再ブロック
+            self._ver_cb.bind("<MouseWheel>", lambda e: "break")
+            self._ver_cb.bind("<Button-4>",   lambda e: "break")
+            self._ver_cb.bind("<Button-5>",   lambda e: "break")
             if versions == MC_VERSIONS_FALLBACK:
                 self._ver_status.config(text="⚠ オフライン", foreground=YEL)
                 self._log("⚠ バージョン取得失敗 → フォールバック使用", "warn", "sys")
