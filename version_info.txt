@@ -18,7 +18,7 @@ VSVersionInfo(
           StringStruct(u'FileDescription',  u'Minecraft Mod / ResourcePack / Shader Updater'),
           StringStruct(u'FileVersion',      u'1.0.0.0'),
           StringStruct(u'InternalName',     u'MC-Pack-Updater'),
-          StringStruct(u'LegalCopyright',   u'Copyright 2025'),
+          StringStruct(u'LegalCopyright',   u'Copyright 2026 29kiyo'),
           StringStruct(u'OriginalFilename', u'MC-Pack-Updater.exe'),
           StringStruct(u'ProductName',      u'MC Pack Updater'),
           StringStruct(u'ProductVersion',   u'1.0.0.0'),
