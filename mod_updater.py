@@ -328,8 +328,8 @@ class FileListPanel(ttk.Frame):
 
         if self.mr_type == MR_MOD:
             cols  = ("chk","name","version","loader")
-            heads = [("chk","✔",36),("name","名前",220),
-                     ("version","バージョン",100),("loader","Loader",70)]
+            heads = [("chk","✔",36),("name","名前",200),
+                     ("version","バージョン",95),("loader","Loader",70)]
         else:
             cols  = ("chk","name")
             heads = [("chk","✔",36),("name","名前",280)]
@@ -337,7 +337,9 @@ class FileListPanel(ttk.Frame):
         self._tree = ttk.Treeview(self, columns=cols, show="headings", selectmode="none")
         for cid,lbl,w in heads:
             self._tree.heading(cid, text=lbl)
+            # name以外は固定幅、nameだけstretch=Trueで残り幅を全部使う
             self._tree.column(cid, width=w,
+                               minwidth=w if cid != "name" else 80,
                                anchor="center" if cid=="chk" else "w",
                                stretch=(cid=="name"))
         self._tree.tag_configure("even", background=BG2)
@@ -777,6 +779,7 @@ class App(tk.Tk):
                         "display_name": raw,       # 表示用は元の名前
                         "mod_id":"","version":"","loader":""}
             items.append(info)
+        items.sort(key=lambda x: x.get("name","").lower())
         panel.populate(items)
         self._log(f"✅ {kind_label}: {len(items)} 件読み込み完了", "ok", "sys")
         return True
