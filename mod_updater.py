@@ -765,11 +765,17 @@ class App(tk.Tk):
         win = tk.Toplevel(self)
         win.title("API Key 取得方法")
         win.configure(bg=BG)
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
-        ww = int(sw * 0.75)
-        wh = int(sh * 0.85)
-        win.geometry(f"{ww}x{wh}+{(sw-ww)//2}+{(sh-wh)//2}")
+        # メインウィンドウの2/3サイズで中央に表示
+        self.update_idletasks()
+        mw = self.winfo_width()
+        mh = self.winfo_height()
+        mx = self.winfo_x()
+        my = self.winfo_y()
+        ww = int(mw * 2 / 3)
+        wh = int(mh * 2 / 3)
+        wx = mx + (mw - ww) // 2
+        wy = my + (mh - wh) // 2
+        win.geometry(f"{ww}x{wh}+{wx}+{wy}")
         win.resizable(True, True)
 
         # PDFを開いてページ画像を生成
