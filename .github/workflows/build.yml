@@ -23,13 +23,16 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --onefile --windowed --name "MC-Pack-Updater" mod_updater.py
+          pyinstaller --onedir --windowed --name "MC-Pack-Updater" --noupx mod_updater.py
+
+      - name: Zip dist folder
+        run: Compress-Archive -Path dist\MC-Pack-Updater -DestinationPath dist\MC-Pack-Updater.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: MC-Pack-Updater
-          path: dist/MC-Pack-Updater.exe
+          path: dist\MC-Pack-Updater.zip
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -37,7 +40,7 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           name: "MC-Pack-Updater build #${{ github.run_number }}"
-          files: dist/MC-Pack-Updater.exe
+          files: dist\MC-Pack-Updater.zip
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
