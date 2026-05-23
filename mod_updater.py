@@ -199,8 +199,17 @@ def mr_get_versions(pid, mc_ver, loader, mr_type=MR_MOD):
         return []
 
 def mr_get_deps(version_obj, mc_ver, loader):
-    return [d.get("project_id") for d in version_obj.get("dependencies",[])
-            if d.get("dependency_type") == "required" and d.get("project_id")]
+    """依存関係を返す。version_id指定があればそれを優先。
+    戻り値: [(project_id, version_id or None)]
+    """
+    deps = []
+    for d in version_obj.get("dependencies", []):
+        if d.get("dependency_type") != "required": continue
+        pid = d.get("project_id")
+        vid = d.get("version_id")  # 特定バージョン指定がある場合
+        if pid:
+            deps.append((pid, vid))
+    return deps
 
 # ── CurseForge ────────────────────────────────────────────────
 def _cf_req(url, api_key):
@@ -438,6 +447,7 @@ class App(tk.Tk):
         self.delete_old     = tk.BooleanVar(value=cfg.get("delete_old",False))
         self.delete_failed  = tk.BooleanVar(value=cfg.get("delete_failed",False))
         self.auto_deps      = tk.BooleanVar(value=cfg.get("auto_deps",True))
+        self.strict_deps    = tk.BooleanVar(value=cfg.get("strict_deps",False))
 
         self._cf_key_showing = False
         self._running        = False
@@ -627,6 +637,7 @@ class App(tk.Tk):
             ("アップデート後に古いファイルを削除する",                    self.delete_old),
             ("ダウンロード失敗したファイルを削除する（壊れたファイル除去）", self.delete_failed),
             ("前提Modが足りなければ自動でダウンロードする",               self.auto_deps),
+            ("前提Modのバージョンを厳密に指定する（不安定な場合はOFF）",   self.strict_deps),
         ]:
             ttk.Checkbutton(lf4, text=txt, variable=var).pack(padx=10, pady=2, anchor="w")
 
@@ -1078,30 +1089,43 @@ class App(tk.Tk):
                     results[key]["ok"].append(name)
                     # 前提Mod
                     if mr_type == MR_MOD and auto_deps and version_obj:
-                        for dep_pid in mr_get_deps(version_obj, mc_ver, loader):
+                        strict = self.strict_deps.get()
+                        for dep_pid, dep_vid in mr_get_deps(version_obj, mc_ver, loader):
                             if dep_pid in done_deps: continue
                             done_deps.add(dep_pid)
                             self._log(f"  🔗 依存Mod: {dep_pid}", "info", key)
                             try:
-                                vs = mr_get_versions(dep_pid, mc_ver, loader)
-                                if vs:
-                                    du = df = None
-                                    for fi in vs[0].get("files",[]):
+                                du = df = None
+                                if strict and dep_vid:
+                                    # バージョン指定あり → そのバージョンを直接取得
+                                    self._log(f"  🔗 指定バージョン: {dep_vid}", "info", key)
+                                    v_data = http_get(f"{MODRINTH_API}/version/{dep_vid}")
+                                    for fi in v_data.get("files", []):
                                         if fi.get("primary") or not du:
-                                            du,df = fi["url"],fi["filename"]
+                                            du, df = fi["url"], fi["filename"]
                                             if fi.get("primary"): break
-                                    if du and df:
-                                        ddest = os.path.join(out_dir, df)
-                                        if os.path.exists(ddest):
-                                            self._log(f"  🔗 既存: {df}", "ok", key)
-                                        else:
-                                            self._do_download(du, ddest, df, "Modrinth",
-                                                               None, False, delete_fail, key)
-                                            dep_item = {"filename":df,"path":ddest,
-                                                        "name":df,"mod_id":"","version":"","loader":""}
-                                            self.after(0, lambda di=dep_item:
-                                                self._mod_panel.add_item(di,"dep"))
-                                            results[key]["ok"].append(f"[依存] {df}")
+                                else:
+                                    # バージョン指定なし or 非厳密 → MCバージョンで最新を取得
+                                    vs = mr_get_versions(dep_pid, mc_ver, loader)
+                                    if vs:
+                                        for fi in vs[0].get("files", []):
+                                            if fi.get("primary") or not du:
+                                                du, df = fi["url"], fi["filename"]
+                                                if fi.get("primary"): break
+                                if du and df:
+                                    ddest = os.path.join(out_dir, df)
+                                    if os.path.exists(ddest):
+                                        self._log(f"  🔗 既存: {df}", "ok", key)
+                                    else:
+                                        self._do_download(du, ddest, df, "Modrinth",
+                                                           None, False, delete_fail, key)
+                                        dep_item = {"filename":df,"path":ddest,
+                                                    "name":df,"mod_id":"","version":"","loader":""}
+                                        self.after(0, lambda di=dep_item:
+                                            self._mod_panel.add_item(di,"dep"))
+                                        results[key]["ok"].append(f"[依存] {df}")
+                                else:
+                                    self._log(f"  🔗 依存Mod: 対応バージョンなし", "warn", key)
                             except Exception as e:
                                 self._log(f"  🔗 依存エラー: {e}", "err", key)
                 else:
@@ -1206,6 +1230,7 @@ class App(tk.Tk):
             "delete_old":     self.delete_old.get(),
             "delete_failed":  self.delete_failed.get(),
             "auto_deps":      self.auto_deps.get(),
+            "strict_deps":    self.strict_deps.get(),
         })
         self.destroy()
 
