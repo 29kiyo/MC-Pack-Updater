@@ -544,13 +544,11 @@ class App(tk.Tk):
         canvas.bind("<Configure>", lambda e: canvas.itemconfig(win_id, width=e.width))
 
         def _wheel(e):
-            # コンボボックス上ではスクロールしない
             if isinstance(e.widget, ttk.Combobox): return
-            # メインウィンドウがフォーカスを持っている時だけスクロール
-            focused = self.focus_displayof()
-            if focused is None: return
-            # TopLevelウィンドウ（PDFビューア等）が開いている場合はスクロールしない
-            top = focused.winfo_toplevel()
+            try:
+                top = e.widget.winfo_toplevel()
+            except Exception:
+                return
             if top != self: return
             canvas.yview_scroll(int(-1*(e.delta/120)), "units")
         canvas.bind_all("<MouseWheel>", _wheel)
@@ -860,7 +858,7 @@ class App(tk.Tk):
             canvas.yview_moveto(0)
 
         canvas.bind("<Configure>", _draw)
-        canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+        canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units") if e.widget.winfo_toplevel() == win else None)
 
         # Spinboxのページ変更
         def _on_spin(*_):
