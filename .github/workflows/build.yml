@@ -43,6 +43,18 @@ jobs:
             --version-file version_info.txt `
             mod_updater.py
 
+      # ── 直前のReleaseをプレリリースに変更 ──
+      - name: Mark previous release as prerelease
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $releases = gh release list --limit 2 --json tagName | ConvertFrom-Json
+          if ($releases.Count -ge 2) {
+            $prevTag = $releases[1].tagName
+            gh release edit $prevTag --prerelease
+            Write-Host "Marked $prevTag as prerelease"
+          }
+
       # ── Release ──
       - name: Upload artifact (zip)
         uses: actions/upload-artifact@v4
