@@ -609,7 +609,7 @@ class App(tk.Tk):
                                         command=self._toggle_cf_show, width=5)
         self._cf_show_btn.pack(side="left", padx=(0,6))
         ttk.Button(r4, text="取得方法 ↗",
-                    command=lambda: webbrowser.open("https://console.curseforge.com/")).pack(side="left")
+                    command=self._show_api_guide).pack(side="left")
         self._update_mode_ui()
 
         # ── オプション ──
@@ -736,6 +736,55 @@ class App(tk.Tk):
             if maximum is not None: self._progress.configure(maximum=maximum)
             self._progress.configure(value=v)
         self.after(0, _do)
+
+    def _show_api_guide(self):
+        """API Key Guide.pdf をポップアップで表示する"""
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        pdf_path = os.path.join(base, "API Key Guide.pdf")
+
+        if not os.path.exists(pdf_path):
+            # PDFが見つからない場合はブラウザで開く
+            webbrowser.open("https://console.curseforge.com/")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("CurseForge API Key Guide")
+        win.configure(bg=BG)
+
+        # ウィンドウサイズを画面の80%に設定
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        ww = int(sw * 0.8)
+        wh = int(sh * 0.8)
+        wx = (sw - ww) // 2
+        wy = (sh - wh) // 2
+        win.geometry(f"{ww}x{wh}+{wx}+{wy}")
+        win.resizable(True, True)
+
+        # 閉じるボタン
+        btn_frame = ttk.Frame(win)
+        btn_frame.pack(fill="x", padx=8, pady=(8,4))
+        ttk.Button(btn_frame, text="✕ 閉じる",
+                    command=win.destroy).pack(side="right")
+
+        # PDF をシステムのデフォルトアプリで開く
+        try:
+            os.startfile(pdf_path)
+            ttk.Label(win,
+                       text=f"PDFを外部アプリで開きました。\n{pdf_path}",
+                       font=("Segoe UI", 11)).pack(expand=True)
+            win.destroy()
+            return
+        except Exception:
+            pass
+
+        # フォールバック：tkinterでPDFパスを表示
+        ttk.Label(win,
+                   text="PDFビューアが見つかりませんでした。\n以下のパスから直接開いてください：",
+                   font=("Segoe UI", 11)).pack(pady=(20,8))
+        path_var = tk.StringVar(value=pdf_path)
+        ttk.Entry(win, textvariable=path_var, state="readonly",
+                   width=60).pack(padx=20)
 
     def _update_mode_ui(self):
         mode = self.dl_mode.get()
