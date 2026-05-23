@@ -21,7 +21,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install pyinstaller
+        run: pip install pyinstaller pymupdf
 
       # ── onedir → zip ──
       - name: Build (onedir)
