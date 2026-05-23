@@ -19,7 +19,18 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install pyinstaller
+        run: pip install pyinstaller pyinstaller-hooks-contrib
+
+      - name: Install C++ build tools for bootloader
+        run: choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools" -y
+
+      - name: Recompile PyInstaller bootloader
+        run: |
+          git clone https://github.com/pyinstaller/pyinstaller.git pyinstaller-src
+          cd pyinstaller-src\bootloader
+          python ./waf all --target-arch=64bit
+          cd ..\..
+          pip install ./pyinstaller-src
 
       - name: Build EXE
         run: |
