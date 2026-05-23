@@ -429,8 +429,11 @@ class App(tk.Tk):
             icon_path = os.path.join(base, "icon.ico")
             if os.path.exists(icon_path):
                 self.iconbitmap(default=icon_path)
+                self._icon_path = icon_path  # Toplevelにも使えるよう保持
+            else:
+                self._icon_path = None
         except Exception:
-            pass
+            self._icon_path = None
         self.geometry("1150x780")
         self.configure(bg=BG)
         self.resizable(True, True)
@@ -776,6 +779,9 @@ class App(tk.Tk):
         win = tk.Toplevel(self)
         win.title("API Key 取得方法")
         win.configure(bg=BG)
+        if self._icon_path:
+            try: win.iconbitmap(self._icon_path)
+            except Exception: pass
         # メインウィンドウの2/3サイズで中央に表示
         self.update_idletasks()
         mw = self.winfo_width()
@@ -1055,7 +1061,6 @@ class App(tk.Tk):
         delete_fail  = self.delete_failed.get()
         auto_deps    = self.auto_deps.get()
         done_deps    = set()
-
         # カテゴリ別に結果を収集
         results = {"mod":{"ok":[],"fail":[]},
                    "rp": {"ok":[],"fail":[]},
@@ -1083,8 +1088,11 @@ class App(tk.Tk):
 
             if dl_url and dl_fname:
                 dest    = os.path.join(out_dir, dl_fname)
+                # RP・Shaderは削除しない
+                do_del_old  = delete_old  if mr_type == MR_MOD else False
+                do_del_fail = delete_fail if mr_type == MR_MOD else False
                 success = self._do_download(dl_url, dest, name, source,
-                                             item.get("path"), delete_old, delete_fail, key)
+                                             item.get("path"), do_del_old, do_del_fail, key)
                 if success:
                     results[key]["ok"].append(name)
                     # 前提Mod
@@ -1117,6 +1125,30 @@ class App(tk.Tk):
                                     if os.path.exists(ddest):
                                         self._log(f"  🔗 既存: {df}", "ok", key)
                                     else:
+                                        # 同じMod IDの別バージョンが既にあるか確認
+                                        existing = None
+                                        if strict and dep_vid:
+                                            # 厳密モード: 同じmod_idで違うverのファイルがあれば削除して再DL
+                                            dep_meta = read_jar_meta(os.path.join(out_dir, df)) if os.path.exists(os.path.join(out_dir, df)) else None
+                                            for f in os.listdir(out_dir):
+                                                if not f.lower().endswith(".jar"): continue
+                                                fp = os.path.join(out_dir, f)
+                                                m  = read_jar_meta(fp)
+                                                # project_idレベルで同じmodか判定（mod_idで比較）
+                                                try:
+                                                    v_info = http_get(f"{MODRINTH_API}/version/{dep_vid}")
+                                                    pid_check = v_info.get("project_id","")
+                                                    if m.get("mod_id") and pid_check:
+                                                        slug_d = http_get(f"{MODRINTH_API}/project/{pid_check}")
+                                                        if m.get("mod_id") == slug_d.get("slug",""):
+                                                            existing = fp
+                                                            break
+                                                except Exception:
+                                                    pass
+                                        if existing and existing != ddest:
+                                            self._log(f"  🔗 バージョン不足のため差し替え: {os.path.basename(existing)}", "warn", key)
+                                            try: os.remove(existing)
+                                            except Exception: pass
                                         self._do_download(du, ddest, df, "Modrinth",
                                                            None, False, delete_fail, key)
                                         dep_item = {"filename":df,"path":ddest,
@@ -1133,7 +1165,7 @@ class App(tk.Tk):
             else:
                 results[key]["fail"].append(name)
                 self._log(f"  ❌ スキップ（対応バージョンなし）", "err", key)
-                if delete_fail and item.get("path") and os.path.exists(item["path"]):
+                if delete_fail and mr_type == MR_MOD and item.get("path") and os.path.exists(item["path"]):
                     try:
                         os.remove(item["path"])
                         self._log(f"  🗑 失敗ファイル削除: {item['filename']}", "warn", key)
@@ -1168,7 +1200,7 @@ class App(tk.Tk):
             msg += "\n"
             for key, lbl in [("mod","🧩 Mod"),("rp","🎨 ResourcePack"),("shader","✨ Shader")]:
                 if results[key]["fail"]:
-                    msg += f"\n{lbl}:\n" + "\n".join(f"  • {n}" for n in results[key]["fail"])
+                    msg += f"\n{lbl}:\n" + "\n".join(f"  • {n}" for n in results[key]["fail"]) + "\n"
         self.after(0, lambda: messagebox.showinfo("完了", msg))
 
     def _do_download(self, url, dest, name, source, old_path,
