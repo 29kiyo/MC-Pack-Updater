@@ -533,6 +533,12 @@ class App(tk.Tk):
         def _wheel(e):
             # コンボボックス上ではスクロールしない
             if isinstance(e.widget, ttk.Combobox): return
+            # メインウィンドウがフォーカスを持っている時だけスクロール
+            focused = self.focus_displayof()
+            if focused is None: return
+            # TopLevelウィンドウ（PDFビューア等）が開いている場合はスクロールしない
+            top = focused.winfo_toplevel()
+            if top != self: return
             canvas.yview_scroll(int(-1*(e.delta/120)), "units")
         canvas.bind_all("<MouseWheel>", _wheel)
 
