@@ -26,6 +26,7 @@ jobs:
         run: |
           pyinstaller --onedir --windowed --noupx --name "MC-Pack-Updater" `
             --icon icon.ico `
+            --add-data "icon.ico;." `
             --version-file version_info.txt `
             mod_updater.py
 
@@ -40,6 +41,7 @@ jobs:
         run: |
           pyinstaller --onefile --windowed --noupx --name "MC-Pack-Updater" `
             --icon icon.ico `
+            --add-data "icon.ico;." `
             --version-file version_info.txt `
             mod_updater.py
 
