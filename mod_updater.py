@@ -407,6 +407,15 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("⛏ MC Pack Updater")
+
+        # ウィンドウ・タスクバーのアイコン設定
+        try:
+            base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+            icon_path = os.path.join(base, "icon.ico")
+            if os.path.exists(icon_path):
+                self.iconbitmap(icon_path)
+        except Exception:
+            pass
         self.geometry("1150x780")
         self.configure(bg=BG)
         self.resizable(True, True)
