@@ -1,0 +1,52 @@
+name: Build EXE (Nuitka)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install nuitka ordered-set zstandard
+
+      - name: Build EXE with Nuitka
+        run: |
+          python -m nuitka `
+            --onefile `
+            --windows-console-mode=disable `
+            --windows-file-version=1.0.0.0 `
+            --windows-product-version=1.0.0.0 `
+            --windows-file-description="Minecraft Mod / ResourcePack / Shader Updater" `
+            --windows-product-name="MC Pack Updater" `
+            --windows-company-name="MC Pack Updater" `
+            --enable-plugin=tk-inter `
+            --output-filename="MC-Pack-Updater.exe" `
+            --output-dir=dist `
+            mod_updater.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MC-Pack-Updater-Nuitka
+          path: dist\MC-Pack-Updater.exe
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: build-nuitka-${{ github.run_number }}
+          name: "MC-Pack-Updater Nuitka build #${{ github.run_number }}"
+          files: dist\MC-Pack-Updater.exe
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
