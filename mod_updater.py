@@ -426,6 +426,7 @@ class App(tk.Tk):
 
         self._cf_key_showing = False
         self._running        = False
+        self._cancel_flag    = False
 
         self._apply_style()
         self._build_ui()
@@ -496,6 +497,9 @@ class App(tk.Tk):
         self._progress.pack(side="left", fill="x", expand=True, padx=(0,10))
         self._prog_label = ttk.Label(bar, text="", width=34)
         self._prog_label.pack(side="left")
+        self._cancel_btn = ttk.Button(bar, text="⏹ 中止", command=self._cancel,
+                                       state="disabled")
+        self._cancel_btn.pack(side="left", padx=(8,0))
 
     # ── 設定タブ（スクロール対応） ────────────────────────────
     def _build_settings(self, p):
@@ -561,8 +565,10 @@ class App(tk.Tk):
                                       foreground=YEL, background=BG, font=("Segoe UI",8))
         self._ver_status.pack(side="left", padx=(0,14))
         ttk.Label(r2, text="Mod Loader:").pack(side="left")
-        ttk.Combobox(r2, textvariable=self.target_loader,
-                      values=LOADERS, width=12, state="readonly").pack(side="left",padx=(4,10))
+        self._loader_cb = ttk.Combobox(r2, textvariable=self.target_loader,
+                      values=LOADERS, width=12, state="readonly")
+        self._loader_cb.pack(side="left",padx=(4,10))
+        self._loader_cb.bind("<<ComboboxSelected>>", lambda _: self._filter_versions())
         ttk.Button(r2, text="✕ リセット",
                     command=lambda: (self.target_version.set(""),
                                      self.target_loader.set(""))).pack(side="left")
@@ -739,6 +745,39 @@ class App(tk.Tk):
         d = filedialog.askdirectory()
         if d: var.set(d)
 
+    def _cancel(self):
+        self._cancel_flag = True
+        self._set_status("中止中...")
+        self._cancel_btn.config(state="disabled")
+
+    def _filter_versions(self):
+        """Loader選択に応じてバージョン一覧をフィルタリング"""
+        # 各Loaderの最小バージョン
+        LOADER_MIN = {
+            "forge":    (1, 1),
+            "fabric":   (1, 14),
+            "quilt":    (1, 16),
+            "neoforge": (1, 20, 1),
+        }
+        loader = self.target_loader.get()
+        min_ver = LOADER_MIN.get(loader)
+        all_versions = self._ver_cb["values"]
+        if not all_versions or not min_ver:
+            return
+
+        def ver_tuple(v):
+            try:
+                return tuple(int(x) for x in v.split("."))
+            except Exception:
+                return (0,)
+
+        filtered = [v for v in all_versions if ver_tuple(v) >= min_ver]
+        self._ver_cb["values"] = filtered
+        # 現在の選択がフィルタ後リストにない場合は先頭に変更
+        if self.target_version.get() not in filtered and filtered:
+            self._ver_cb.set(filtered[0])
+            self.target_version.set(filtered[0])
+
     def _validate_cf(self):
         if self.dl_mode.get() in (DL_BOTH, DL_CF_FIRST, DL_CF) and not self.cf_api_key.get().strip():
             messagebox.showerror("エラー","CurseForgeを使用するにはAPIキーが必要です")
@@ -853,9 +892,11 @@ class App(tk.Tk):
     def _run_tasks(self, tasks):
         if self._running:
             messagebox.showwarning("実行中","現在アップデート中です"); return
-        self._running = True
+        self._running     = True
+        self._cancel_flag = False
         self._set_progress(0, len(tasks))
         self._nb.select(2)
+        self.after(0, lambda: self._cancel_btn.config(state="normal"))
         threading.Thread(target=self._worker,
                           args=(tasks, self.target_version.get(),
                                 self.target_loader.get(),
@@ -876,6 +917,11 @@ class App(tk.Tk):
                    "shader":{"ok":[],"fail":[]}}
 
         for i, (item, out_dir, mr_type, cf_class) in enumerate(tasks):
+            # 中止チェック
+            if self._cancel_flag:
+                self._log("\n⏹ ユーザーによって中止されました", "warn", "mod")
+                break
+
             name = item.get("name", item["filename"])
             key  = self._kind_key(mr_type)
             kind = {"mod":"Mod","rp":"RP","shader":"Shader"}[key]
@@ -955,8 +1001,9 @@ class App(tk.Tk):
             else:
                 self._log("🎉 全て完了！", "ok", key)
 
-        self._set_status("完了")
+        self._set_status("完了" if not self._cancel_flag else "中止")
         self._running = False
+        self.after(0, lambda: self._cancel_btn.config(state="disabled"))
 
         msg = f"✅ 成功: {total_ok} 件\n❌ 失敗: {total_fail} 件"
         if total_fail:
@@ -998,6 +1045,7 @@ class App(tk.Tk):
             self._ver_cb["values"] = versions
             self._ver_cb.set(cur if cur in versions else versions[0])
             self.target_version.set(self._ver_cb.get())
+            self._filter_versions()  # Loaderに応じてフィルタ適用
             if versions == MC_VERSIONS_FALLBACK:
                 self._ver_status.config(text="⚠ オフライン", foreground=YEL)
                 self._log("⚠ バージョン取得失敗 → フォールバック使用", "warn", "sys")
