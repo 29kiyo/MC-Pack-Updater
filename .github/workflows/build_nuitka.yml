@@ -30,6 +30,7 @@ jobs:
             --windows-product-name="MC Pack Updater" `
             --windows-company-name="MC Pack Updater" `
             --enable-plugin=tk-inter `
+            --assume-yes-for-downloads `
             --output-filename="MC-Pack-Updater.exe" `
             --output-dir=dist `
             mod_updater.py
