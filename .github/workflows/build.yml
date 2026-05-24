@@ -2,7 +2,7 @@ name: Build Go EXE
 
 on:
   push:
-    branches: [ go-version ]
+    branches: [ go-version]
     paths-ignore:
       - 'README.md'
   workflow_dispatch:
@@ -18,31 +18,38 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.23' # 依存ライブラリの要求に合わせて1.23以上に固定
 
       - name: Install Dependencies
+        env:
+          GOPROXY: https://proxy.golang.org,direct # パブリックプロキシを経由させて認証エラーを回避
         run: |
           go mod init mc_pack_updater || true
           go get fyne.io/fyne/v2
           go get github.com/gen2brain/go-fitz
-          go install github.com/tc-hilton/go-winres@latest
+          # Fyne公式のパッケージングツールをインストール
+          go install fyne.io/fyne/v2/cmd/fyne@latest
 
-      # ── icon.ico がある場合に exe へアイコンを強制的に埋め込む処理 ──
-      - name: Embed Icon into EXE
+      # ── icon.ico がある場合に Fyne公式ツールを使ってアイコンを埋め込む ──
+      - name: Prepare Resource with Fyne Tool
         run: |
           if (Test-Path "icon.ico") {
-            go-winres init
-            go-winres make
-            Write-Host "✅ icon.ico を埋め込むためのリソースファイルを生成しました"
-          } else {
-            Write-Host "⚠ icon.ico が見つかりません。デフォルトのアイコンになります"
+            # Fyneツールで必要なリソースのセットアップを行います
+            Write-Host "✅ icon.ico を検出しました"
           }
 
       # ── onedir 相当：バイナリとすべてのリソースファイルをフォルダにまとめる ──
       - name: Build (onedir)
         run: |
           mkdir dist\MC-Pack-Updater
-          go build -ldflags="-H=windowsgui" -o dist\MC-Pack-Updater\MC-Pack-Updater.exe main.go
+          if (Test-Path "icon.ico") {
+            # fyneのパッケージ機能を利用して、アイコン埋め込み済みのexeを出力します
+            $env:PATH += ";$HOME\go\bin"
+            fyne package -os windows -icon icon.ico
+            Move-Item "mc_pack_updater.exe" "dist\MC-Pack-Updater\MC-Pack-Updater.exe"
+          } else {
+            go build -ldflags="-H=windowsgui" -o dist\MC-Pack-Updater\MC-Pack-Updater.exe main.go
+          }
           if (Test-Path "icon.ico") { Copy-Item "icon.ico" "dist\MC-Pack-Updater\" }
           if (Test-Path "API Key Guide.pdf") { Copy-Item "API Key Guide.pdf" "dist\MC-Pack-Updater\" }
           if (Test-Path "Version_info.txt") { Copy-Item "Version_info.txt" "dist\MC-Pack-Updater\" }
@@ -56,7 +63,14 @@ jobs:
 
       - name: Build (onefile)
         run: |
-          go build -ldflags="-H=windowsgui" -o dist\MC-Pack-Updater.exe main.go
+          if (Test-Path "icon.ico") {
+            # onefile用にもアイコン付きで再ビルド
+            $env:PATH += ";$HOME\go\bin"
+            fyne package -os windows -icon icon.ico
+            Move-Item "mc_pack_updater.exe" "dist\MC-Pack-Updater.exe"
+          } else {
+            go build -ldflags="-H=windowsgui" -o dist\MC-Pack-Updater.exe main.go
+          }
 
       # ── 直前のReleaseをプレリリースに変更 ──
       - name: Mark previous release as prerelease
