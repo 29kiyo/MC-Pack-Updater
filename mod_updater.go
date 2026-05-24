@@ -21,6 +21,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/data"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -676,8 +677,8 @@ func NewFileListPanel(mrType string, loadFn, updateFn func()) *FileListPanel {
 			if id >= len(p.Items) { return }
 			item := p.Items[id]
 			box := o.(*fyne.Container)
-			chk := box.Objects[0].(*widget.Widget).(*widget.Check)
-			lbl := box.Objects[1].(*widget.Widget).(*widget.Label)
+			chk := box.Objects[0].(*widget.Check)
+            lbl := box.Objects[1].(*widget.Label)
 
 			chk.Checked = item.Selected
 			chk.OnChanged = func(b bool) {
@@ -842,13 +843,13 @@ func (s *AppState) buildUI() {
 func (s *AppState) buildSettingsTab() fyne.CanvasObject {
 	// 各種テキスト入力初期化
 	profEntry := widget.NewEntry()
-	profEntry.Bind(fyne.NewStringDataItem(&s.Config.ProfileDir))
+	profEntry.Bind(data.NewString(&s.Config.ProfileDir))
 	modsEntry := widget.NewEntry()
-	modsEntry.Bind(fyne.NewStringDataItem(&s.Config.ModsDir))
+	modsEntry.Bind(data.NewString(&s.Config.ModsDir))
 	rpEntry := widget.NewEntry()
-	rpEntry.Bind(fyne.NewStringDataItem(&s.Config.RpDir))
+	rpEntry.Bind(data.NewString(&s.Config.RpDir))
 	shadeEntry := widget.NewEntry()
-	shadeEntry.Bind(fyne.NewStringDataItem(&s.Config.ShaderDir))
+	shadeEntry.Bind(data.NewString(&s.Config.ShaderDir))
 
 	// フォルダ指定欄
 	profRow := container.NewBorder(nil, nil, widget.NewLabel("🚀 起動構成フォルダ:"), container.NewHBox(
@@ -903,7 +904,7 @@ func (s *AppState) buildSettingsTab() fyne.CanvasObject {
 
 	// DL設定
 	s.CfKeyEntry = widget.NewPasswordEntry()
-	s.CfKeyEntry.Bind(fyne.NewStringDataItem(&s.Config.CfApiKey))
+	s.CfKeyEntry.Bind(data.NewString(&s.Config.CfApiKey))
 
 	modeDesc := widget.NewLabel("")
 	s.DlModeSelect = widget.NewSelect(DlModes, func(m string) {
@@ -1070,7 +1071,7 @@ func (s *AppState) showApiGuide() {
 	home, _ := os.UserHomeDir()
 	pdfPath := filepath.Join(home, "API Key Guide.pdf")
 	
-	doc, err := fitz.Open(pdfPath)
+	doc, err := fitz.New(pdfPath)
 	if err != nil {
 		s.logMsg("PDFガイドが見つかりません。コンソールを開きます。", "sys")
 		fyne.CurrentApp().OpenURL(&url.URL{Scheme: "https", Host: "console.curseforge.com"})
@@ -1213,7 +1214,7 @@ func (s *AppState) runTasks(tasks []Task) {
 	s.Mu.Lock()
 	if s.Running {
 		s.Mu.Unlock()
-		dialog.ShowWarning(fmt.Errorf("現在アップデート処理の実行中です"), s.MainWindow)
+		dialog.ShowError(fmt.Errorf("現在アップデート処理の実行中です"), s.MainWindow)
 		return
 	}
 	s.Running = true
