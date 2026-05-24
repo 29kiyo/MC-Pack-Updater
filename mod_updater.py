@@ -297,8 +297,8 @@ class FileListPanel(ttk.Frame):
             self._tree.column(cid, width=w, minwidth=w if cid!="name" else 80,
                                anchor="center" if cid=="chk" else "w", stretch=(cid=="name"))
         self._tree.tag_configure("even", background=BG2)
-        self._tree.tag_configure("odd",  background="#f0f0eb")
-        self._tree.tag_configure("dep",  background="#dbeafe")
+        self._tree.tag_configure("odd",  background=THEMES[_current_theme()]["ROW_ODD"])
+        self._tree.tag_configure("dep",  background=THEMES[_current_theme()]["SEL"])
         vsb = ttk.Scrollbar(self, orient="vertical", command=self._tree.yview)
         self._tree.configure(yscrollcommand=vsb.set)
         self._tree.pack(side="left", fill="both", expand=True, padx=(4,0), pady=(0,4))
@@ -653,6 +653,7 @@ class App(tk.Tk):
                     panel._tree.item(row, tags=("dep",))
                 else:
                     panel._tree.item(row, tags=("even" if i%2==0 else "odd",))
+            panel._tree.update_idletasks()
 
     def _update_mode_ui(self):
         mode = self.dl_mode.get()
