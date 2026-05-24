@@ -21,11 +21,6 @@ CF_GAME, CF_MOD, CF_RP, CF_SHADE = 432, 6, 12, 6552
 MR_MOD, MR_RP, MR_SHADE = "mod", "resourcepack", "shader"
 LOADER_MIN  = {"forge":(1,1),"fabric":(1,14),"quilt":(1,16),"neoforge":(1,20,1)}
 
-# Quilt使用時に置き換える依存Mod (Fabric project_id -> Quilt互換 project_id)
-QUILT_DEP_SUBSTITUTES = {
-    "P7dR8mSH": "qvIfYCYJ",  # Fabric API -> Quilted Fabric API
-}
-
 THEMES = {
     "light": {
         "BG":  "#f4f4f0", "BG2": "#e8e8e3", "BG3": "#d0d0c8",
@@ -876,12 +871,6 @@ class App(tk.Tk):
                     if mr_type == MR_MOD and auto_deps and version_obj:
                         for dep_pid, dep_vid in mr_get_deps(version_obj):
                             if dep_pid in done_deps: continue
-                            # Quilt使用時はFabric依存ModをQuilt互換に置き換え
-                            if loader == "quilt" and dep_pid in QUILT_DEP_SUBSTITUTES:
-                                new_pid = QUILT_DEP_SUBSTITUTES[dep_pid]
-                                self._log(f"  🔗 Quilt互換に置換: {dep_pid} → {new_pid}", "info", key)
-                                dep_pid = new_pid
-                                dep_vid = None  # バージョン指定はリセット
                             done_deps.add(dep_pid)
                             self._log(f"  🔗 依存Mod: {dep_pid}","info",key)
                             try:
