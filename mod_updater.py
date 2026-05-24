@@ -166,7 +166,12 @@ def mr_get_versions(pid, mc_ver, loader, mr_type=MR_MOD):
     try:
         p = {"game_versions":json.dumps([mc_ver])}
         if mr_type == MR_MOD: p["loaders"] = json.dumps([loader])
-        return http_get(f"{MODRINTH_API}/project/{pid}/version?{urllib.parse.urlencode(p)}")
+        vs = http_get(f"{MODRINTH_API}/project/{pid}/version?{urllib.parse.urlencode(p)}")
+        # Quiltで見つからない場合はFabricでも再検索（Quilt/Fabric互換）
+        if not vs and loader == "quilt" and mr_type == MR_MOD:
+            p["loaders"] = json.dumps(["fabric"])
+            vs = http_get(f"{MODRINTH_API}/project/{pid}/version?{urllib.parse.urlencode(p)}")
+        return vs
     except Exception: return []
 
 def mr_get_deps(version_obj):
@@ -224,6 +229,10 @@ def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key, mr_type, cf_c
             pid  = mr_find_project(sha1, mod_id, name, mr_type)
             if not pid: log_cb("  Modrinth: 見つからず","warn"); return
             vs = mr_get_versions(pid, mc_ver, loader, mr_type)
+            # Quiltで見つからない場合はFabricでも試す
+            if not vs and loader == "quilt":
+                vs = mr_get_versions(pid, mc_ver, "fabric", mr_type)
+                if vs: log_cb("  Modrinth: Fabric互換バージョンで代替","warn")
             if not vs: log_cb(f"  Modrinth: {mc_ver} 対応なし","warn"); return
             version_obj = vs[0]
             dl_url, dl_fname = mr_best_file(vs[0]); source = "Modrinth"
