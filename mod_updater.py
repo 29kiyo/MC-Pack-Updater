@@ -380,15 +380,15 @@ class App(tk.Tk):
         FG, ACC = t["FG"], t["ACC"]
         s = ttk.Style(self); s.theme_use("clam")
         s.configure("TFrame",           background=BG)
-        s.configure("TLabel",           background=BG, foreground=FG, font=("Segoe UI",10))
-        s.configure("Hdr.TLabel",       background=BG, foreground=ACC, font=("Segoe UI",13,"bold"))
-        s.configure("Sub.TLabel",       background=BG, foreground=FG, font=("Segoe UI",9))
+        s.configure("TLabel",           background=BG, foreground=FG, font=("Yu Gothic UI",10))
+        s.configure("Hdr.TLabel",       background=BG, foreground=ACC, font=("Yu Gothic UI",13,"bold"))
+        s.configure("Sub.TLabel",       background=BG, foreground=FG, font=("Yu Gothic UI",9))
         s.configure("TButton",          background=ACC, foreground=t["BTN_FG"],
-                     font=("Segoe UI",10,"bold"), relief="flat", padding=(8,5))
+                     font=("Yu Gothic UI",10,"bold"), relief="flat", padding=(8,5))
         s.map("TButton",                background=[("active",t["BTN_ACT"]),("disabled",t["BTN_DIS"])],
                                         foreground=[("disabled","#6c7086")])
         s.configure("TEntry",           fieldbackground=BG2, foreground=FG, insertcolor=FG, relief="flat", padding=4)
-        s.configure("TCheckbutton",     background=BG, foreground=FG, font=("Segoe UI",10))
+        s.configure("TCheckbutton",     background=BG, foreground=FG, font=("Yu Gothic UI",10))
         s.map("TCheckbutton",           background=[("active",BG)])
         s.configure("TCombobox",        fieldbackground=BG2, foreground=FG,
                      selectbackground=BG2, selectforeground=FG, padding=4)
@@ -397,16 +397,16 @@ class App(tk.Tk):
               foreground=[("readonly",FG),("disabled","#6c7086")],
               selectbackground=[("readonly",BG2)], selectforeground=[("readonly",FG)])
         s.configure("Treeview",         background=BG2, foreground=FG, fieldbackground=BG2,
-                     rowheight=26, font=("Segoe UI",9))
-        s.configure("Treeview.Heading", background=BG, foreground=ACC, font=("Segoe UI",9,"bold"), relief="flat")
+                     rowheight=26, font=("Yu Gothic UI",9))
+        s.configure("Treeview.Heading", background=BG, foreground=ACC, font=("Yu Gothic UI",9,"bold"), relief="flat")
         s.map("Treeview",               background=[("selected",t["TREE_SEL"])],
                                         foreground=[("selected",t["SEL_FG"])])
         s.configure("TProgressbar",     troughcolor=BG2, background=ACC, thickness=8)
         s.configure("TNotebook",        background=BG, tabmargins=0)
-        s.configure("TNotebook.Tab",    background=BG2, foreground=FG, padding=[14,7], font=("Segoe UI",10))
+        s.configure("TNotebook.Tab",    background=BG2, foreground=FG, padding=[14,7], font=("Yu Gothic UI",10))
         s.map("TNotebook.Tab",          background=[("selected",BG)], foreground=[("selected",ACC)])
         s.configure("TLabelframe",      background=BG, relief="solid", borderwidth=1, bordercolor=BG3)
-        s.configure("TLabelframe.Label",background=BG, foreground=ACC, font=("Segoe UI",10,"bold"))
+        s.configure("TLabelframe.Label",background=BG, foreground=ACC, font=("Yu Gothic UI",10,"bold"))
         s.configure("TSeparator",       background=BG3)
         self.configure(bg=BG)
 
@@ -437,7 +437,9 @@ class App(tk.Tk):
         self._cancel_btn.pack(side="left", padx=(8,0))
 
     def _build_settings(self, p):
-        canvas = tk.Canvas(p, bg=BG, highlightthickness=0)
+        t = THEMES[self._theme]
+        self._settings_canvas = tk.Canvas(p, bg=t["BG"], highlightthickness=0)
+        canvas = self._settings_canvas
         vsb    = ttk.Scrollbar(p, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=vsb.set)
         vsb.pack(side="right", fill="y"); canvas.pack(side="left", fill="both", expand=True)
@@ -457,7 +459,7 @@ class App(tk.Tk):
         # 起動構成
         lf0 = ttk.LabelFrame(f, text="🚀  起動構成フォルダ"); lf0.pack(fill="x", **PAD)
         self._profile_note = ttk.Label(lf0, text="指定すると mods / resourcepacks / shaderpacks を自動検出します",
-                   foreground=YEL, background=BG, font=("Segoe UI",8))
+                   foreground=YEL, background=BG, font=("Yu Gothic UI",8))
         self._profile_note.pack(anchor="w", padx=10, pady=(4,0))
         r0 = ttk.Frame(lf0); r0.pack(fill="x", padx=10, pady=(4,8))
         ttk.Entry(r0, textvariable=self.profile_dir).pack(side="left", fill="x", expand=True, padx=(0,6))
@@ -482,7 +484,7 @@ class App(tk.Tk):
         self._ver_cb = ttk.Combobox(r2, textvariable=self.target_version,
                                      values=MC_VERSIONS_FALLBACK, width=12, state="readonly")
         self._ver_cb.pack(side="left", padx=(4,4))
-        self._ver_status = ttk.Label(r2, text="🔄 取得中...", foreground=YEL, background=BG, font=("Segoe UI",8))
+        self._ver_status = ttk.Label(r2, text="🔄 取得中...", foreground=YEL, background=BG, font=("Yu Gothic UI",8))
         self._ver_status.pack(side="left", padx=(0,14))
         ttk.Label(r2, text="Mod Loader:").pack(side="left")
         self._loader_cb = ttk.Combobox(r2, textvariable=self.target_loader,
@@ -499,7 +501,7 @@ class App(tk.Tk):
         self._dl_mode_cb = ttk.Combobox(r3, textvariable=self.dl_mode, values=DL_MODES, width=24, state="readonly")
         self._dl_mode_cb.pack(side="left", padx=(4,0))
         self._dl_mode_cb.bind("<<ComboboxSelected>>", lambda _: self._update_mode_ui())
-        self._mode_desc = ttk.Label(lf3, text="", foreground=YEL, background=BG, font=("Segoe UI",9))
+        self._mode_desc = ttk.Label(lf3, text="", foreground=YEL, background=BG, font=("Yu Gothic UI",9))
         self._mode_desc.pack(anchor="w", padx=10, pady=(0,4))
         ttk.Separator(lf3, orient="horizontal").pack(fill="x", padx=10, pady=4)
         r4 = ttk.Frame(lf3); r4.pack(fill="x", padx=10, pady=(2,8))
@@ -616,6 +618,7 @@ class App(tk.Tk):
         self._mode_desc.config(foreground=t["YEL"], background=t["BG"])
         self._ver_status.config(background=t["BG"])
         self._profile_note.config(foreground=t["YEL"], background=t["BG"])
+        self._settings_canvas.config(bg=t["BG"])
         # Treeviewの行色を更新
         for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
             panel._tree.tag_configure("odd", background=t["ROW_ODD"])
