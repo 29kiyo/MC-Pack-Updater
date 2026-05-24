@@ -287,9 +287,6 @@ class FileListPanel(ttk.Frame):
             self._tree.heading(cid, text=lbl)
             self._tree.column(cid, width=w, minwidth=w if cid!="name" else 80,
                                anchor="center" if cid=="chk" else "w", stretch=(cid=="name"))
-        self._tree.tag_configure("even", background=BG2)
-        self._tree.tag_configure("odd",  background=THEMES[_current_theme()]["ROW_ODD"])
-        self._tree.tag_configure("dep",  background=THEMES[_current_theme()]["SEL"])
         vsb = ttk.Scrollbar(self, orient="vertical", command=self._tree.yview)
         self._tree.configure(yscrollcommand=vsb.set)
         self._tree.pack(side="left", fill="both", expand=True, padx=(4,0), pady=(0,4))
@@ -299,16 +296,12 @@ class FileListPanel(ttk.Frame):
     def populate(self, items):
         for row in self._tree.get_children(): self._tree.delete(row)
         self.items = list(items)
-        # 現在のテーマ色を適用
-        self._tree.tag_configure("even", background=BG2)
-        self._tree.tag_configure("odd",  background=THEMES[_current_theme()]["ROW_ODD"])
-        self._tree.tag_configure("dep",  background=THEMES[_current_theme()]["SEL"])
         for i, it in enumerate(self.items):
             iid     = it["filename"]
             display = it.get("display_name") or it.get("name", iid)
             vals    = (("☑",display,it.get("version","?"),it.get("loader","?"))
                        if self.mr_type==MR_MOD else ("☑",display))
-            self._tree.insert("","end", iid=iid, tags=("even" if i%2==0 else "odd",), values=vals)
+            self._tree.insert("","end", iid=iid, values=vals)
         self._upd_label()
 
     def add_item(self, item, tag="dep"):
@@ -317,7 +310,7 @@ class FileListPanel(ttk.Frame):
         self.items.append(item)
         vals = (("☑",item.get("name",iid),item.get("version",""),item.get("loader",""))
                 if self.mr_type==MR_MOD else ("☑",item.get("name",iid)))
-        self._tree.insert("","end", iid=iid, tags=(tag,), values=vals)
+        self._tree.insert("","end", iid=iid, values=vals)
         self._upd_label()
 
     def get_selected(self):
@@ -632,21 +625,10 @@ class App(tk.Tk):
         self._ver_status.config(background=t["BG"])
         self._profile_note.config(foreground=t["YEL"], background=t["BG"])
         self._settings_canvas.config(bg=t["BG"])
-        # Treeviewの全色を更新
+        # Treeviewの色を更新（単色なのでconfigureだけでOK）
         for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
             panel._tree.configure(background=t["BG2"], foreground=t["FG"],
                                    fieldbackground=t["BG2"])
-            panel._tree.tag_configure("even", background=t["BG2"])
-            panel._tree.tag_configure("odd",  background=t["ROW_ODD"])
-            panel._tree.tag_configure("dep",  background=t["SEL"])
-            # 既存行のタグを再適用して色を即時反映
-            for i, row in enumerate(panel._tree.get_children()):
-                tags = panel._tree.item(row, "tags")
-                if "dep" in tags:
-                    panel._tree.item(row, tags=("dep",))
-                else:
-                    panel._tree.item(row, tags=("even" if i%2==0 else "odd",))
-            panel._tree.update_idletasks()
 
     def _update_mode_ui(self):
         mode = self.dl_mode.get()
