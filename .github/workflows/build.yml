@@ -21,7 +21,22 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install pyinstaller pymupdf
+        run: |
+          pip install pymupdf pillow wheel setuptools
+
+      - name: Clone PyInstaller
+        run: git clone https://github.com/pyinstaller/pyinstaller.git
+
+      - name: Build custom bootloader
+        shell: cmd
+        run: |
+          cd pyinstaller\bootloader
+          python waf all
+
+      - name: Install custom PyInstaller
+        run: |
+          cd pyinstaller
+          pip install .
 
       # ── onedir → zip ──
       - name: Build (onedir)
