@@ -21,7 +21,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/data"
+	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -843,13 +843,13 @@ func (s *AppState) buildUI() {
 func (s *AppState) buildSettingsTab() fyne.CanvasObject {
 	// 各種テキスト入力初期化
 	profEntry := widget.NewEntry()
-	profEntry.Bind(data.NewString(&s.Config.ProfileDir))
+	profEntry.Bind(binding.NewString(&s.Config.ProfileDir))
 	modsEntry := widget.NewEntry()
-	modsEntry.Bind(data.NewString(&s.Config.ModsDir))
+	modsEntry.Bind(binding.NewString(&s.Config.ModsDir))
 	rpEntry := widget.NewEntry()
-	rpEntry.Bind(data.NewString(&s.Config.RpDir))
+	rpEntry.Bind(binding.NewString(&s.Config.RpDir))
 	shadeEntry := widget.NewEntry()
-	shadeEntry.Bind(data.NewString(&s.Config.ShaderDir))
+	shadeEntry.Bind(binding.NewString(&s.Config.ShaderDir))
 
 	// フォルダ指定欄
 	profRow := container.NewBorder(nil, nil, widget.NewLabel("🚀 起動構成フォルダ:"), container.NewHBox(
@@ -904,7 +904,7 @@ func (s *AppState) buildSettingsTab() fyne.CanvasObject {
 
 	// DL設定
 	s.CfKeyEntry = widget.NewPasswordEntry()
-	s.CfKeyEntry.Bind(data.NewString(&s.Config.CfApiKey))
+	s.CfKeyEntry.Bind(binding.NewString(&s.Config.CfApiKey)) // 👈 binding に変更
 
 	modeDesc := widget.NewLabel("")
 	s.DlModeSelect = widget.NewSelect(DlModes, func(m string) {
