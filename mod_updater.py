@@ -10,16 +10,16 @@ MC_VERSIONS_FALLBACK = [
     "1.19.4","1.19.3","1.19.2","1.19.1","1.19","1.18.2","1.18.1","1.18",
     "1.17.1","1.17","1.16.5","1.16.4","1.16.3","1.16.2","1.16.1","1.15.2","1.12.2",
 ]
-LOADERS     = ["fabric","forge","neoforge","quilt"]
+LOADERS     = ["fabric","forge","neoforge"]
 DL_BOTH     = "両方（Modrinth優先）"
 DL_CF_FIRST = "両方（CurseForge優先）"
 DL_MR       = "Modrinthのみ"
 DL_CF       = "CurseForgeのみ"
 DL_MODES    = [DL_BOTH, DL_CF_FIRST, DL_MR, DL_CF]
-CF_LOADER   = {"forge":1,"fabric":4,"quilt":5,"neoforge":6}
+CF_LOADER   = {"forge":1,"fabric":4,"neoforge":6}
 CF_GAME, CF_MOD, CF_RP, CF_SHADE = 432, 6, 12, 6552
 MR_MOD, MR_RP, MR_SHADE = "mod", "resourcepack", "shader"
-LOADER_MIN  = {"forge":(1,1),"fabric":(1,14),"quilt":(1,16),"neoforge":(1,20,1)}
+LOADER_MIN  = {"forge":(1,1),"fabric":(1,14),"neoforge":(1,20,1)}
 
 THEMES = {
     "light": {
@@ -86,7 +86,7 @@ def download_file(url, dest, progress_cb=None):
                 if progress_cb and total: progress_cb(done / total)
 
 def clean_name(raw):
-    n = re.sub(r'[\s_\-\.]+(mc|for|fabric|forge|neoforge|quilt)\d+[\.\d]*$', '', raw, flags=re.I)
+    n = re.sub(r'[\s_\-\.]+(mc|for|fabric|forge|neoforge)\d+[\.\d]*$', '', raw, flags=re.I)
     n = re.sub(r'[\s_\-\.]+v\d+[\.\d]*[a-zA-Z]*$', '', n, flags=re.I)
     n = re.sub(r'[\s_\-\.]+\d+\.\d+[\.\d]*[a-zA-Z]*$', '', n, flags=re.I)
     return n.strip(" _-.") or raw
@@ -170,12 +170,7 @@ def mr_get_versions(pid, mc_ver, loader, mr_type=MR_MOD):
     try:
         p = {"game_versions":json.dumps([mc_ver])}
         if mr_type == MR_MOD: p["loaders"] = json.dumps([loader])
-        vs = http_get(f"{MODRINTH_API}/project/{pid}/version?{urllib.parse.urlencode(p)}")
-        # Quiltで見つからない場合はFabricでも再検索（Quilt/Fabric互換）
-        if not vs and loader == "quilt" and mr_type == MR_MOD:
-            p["loaders"] = json.dumps(["fabric"])
-            vs = http_get(f"{MODRINTH_API}/project/{pid}/version?{urllib.parse.urlencode(p)}")
-        return vs
+        return http_get(f"{MODRINTH_API}/project/{pid}/version?{urllib.parse.urlencode(p)}")
     except Exception: return []
 
 def mr_get_deps(version_obj):
@@ -233,10 +228,6 @@ def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key, mr_type, cf_c
             pid  = mr_find_project(sha1, mod_id, name, mr_type)
             if not pid: log_cb("  Modrinth: 見つからず","warn"); return
             vs = mr_get_versions(pid, mc_ver, loader, mr_type)
-            # Quiltで見つからない場合はFabricでも試す
-            if not vs and loader == "quilt":
-                vs = mr_get_versions(pid, mc_ver, "fabric", mr_type)
-                if vs: log_cb("  Modrinth: Fabric互換バージョンで代替","warn")
             if not vs: log_cb(f"  Modrinth: {mc_ver} 対応なし","warn"); return
             version_obj = vs[0]
             dl_url, dl_fname = mr_best_file(vs[0]); source = "Modrinth"
@@ -371,7 +362,9 @@ class App(tk.Tk):
 
         cfg = load_config()
         self.target_version = tk.StringVar(value=cfg.get("target_version","1.21.4"))
-        self.target_loader  = tk.StringVar(value=cfg.get("target_loader","fabric"))
+        saved_loader = cfg.get("target_loader","fabric")
+        if saved_loader not in LOADERS: saved_loader = "fabric"
+        self.target_loader  = tk.StringVar(value=saved_loader)
         self.cf_api_key     = tk.StringVar(value=cfg.get("cf_api_key",""))
         self.dl_mode        = tk.StringVar(value=cfg.get("dl_mode",DL_BOTH))
         self.profile_dir    = tk.StringVar(value=cfg.get("profile_dir",""))
