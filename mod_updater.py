@@ -407,9 +407,13 @@ class App(tk.Tk):
               selectbackground=[("readonly",BG2)], selectforeground=[("readonly",FG)])
         s.configure("Treeview",         background=BG2, foreground=FG, fieldbackground=BG2,
                      rowheight=26, font=("Yu Gothic UI",9))
-        s.configure("Treeview.Heading", background=BG, foreground=ACC, font=("Yu Gothic UI",9,"bold"), relief="flat")
+        s.configure("Treeview.Heading", background=BG, foreground=ACC,
+                     font=("Yu Gothic UI",9,"bold"), relief="flat")
         s.map("Treeview",               background=[("selected",t["TREE_SEL"])],
                                         foreground=[("selected",t["SEL_FG"])])
+        s.map("Treeview.Heading",       background=[("active",BG2),("pressed",BG2)],
+                                        foreground=[("active",ACC),("pressed",ACC)],
+                                        relief=[("active","flat"),("pressed","flat")])
         s.configure("TProgressbar",     troughcolor=BG2, background=ACC, thickness=8)
         s.configure("TNotebook",        background=BG, tabmargins=0)
         s.configure("TNotebook.Tab",    background=BG2, foreground=FG, padding=[14,7], font=("Yu Gothic UI",10))
@@ -618,8 +622,8 @@ class App(tk.Tk):
         self._theme = "dark" if self._theme == "light" else "light"
         _apply_theme_globals(self._theme)
         self._apply_style()
-        self._theme_btn.config(text=THEMES[self._theme]["ICON"])
         t = THEMES[self._theme]
+        self._theme_btn.config(text=t["ICON"])
         # ログボックスの色を更新
         for box in self._log_boxes.values():
             box.config(bg=t["LOG"], fg=t["FG"],
@@ -627,15 +631,23 @@ class App(tk.Tk):
                        insertbackground=t["FG"])
             for tag, color in [("ok",t["GRN"]),("err",t["RED"]),("info",t["ACC"]),("warn",t["YEL"])]:
                 box.tag_config(tag, foreground=color)
-        # モード説明ラベルの色を更新
+        # ラベルの色を更新
         self._mode_desc.config(foreground=t["YEL"], background=t["BG"])
         self._ver_status.config(background=t["BG"])
         self._profile_note.config(foreground=t["YEL"], background=t["BG"])
         self._settings_canvas.config(bg=t["BG"])
-        # Treeviewの行色を更新
+        # Treeviewの全色を更新
         for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
-            panel._tree.tag_configure("odd", background=t["ROW_ODD"])
+            panel._tree.configure(background=t["BG2"], foreground=t["FG"],
+                                   fieldbackground=t["BG2"])
             panel._tree.tag_configure("even", background=t["BG2"])
+            panel._tree.tag_configure("odd",  background=t["ROW_ODD"])
+            panel._tree.tag_configure("dep",  background=t["SEL"])
+            # 既存の行のタグを再適用
+            for i, row in enumerate(panel._tree.get_children()):
+                current_tags = panel._tree.item(row, "tags")
+                if "dep" not in current_tags:
+                    panel._tree.item(row, tags=("even" if i%2==0 else "odd",))
 
     def _update_mode_ui(self):
         mode = self.dl_mode.get()
