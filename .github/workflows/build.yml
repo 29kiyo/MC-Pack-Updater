@@ -1,0 +1,97 @@
+name: Build Go EXE
+
+on:
+  push:
+    branches: [ go-version ]
+    paths-ignore:
+      - 'README.md'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install Dependencies
+        run: |
+          go mod init mc_pack_updater || true
+          go get fyne.io/fyne/v2
+          go get github.com/gen2brain/go-fitz
+          go install github.com/tc-hilton/go-winres@latest
+
+      # ── icon.ico がある場合に exe へアイコンを強制的に埋め込む処理 ──
+      - name: Embed Icon into EXE
+        run: |
+          if (Test-Path "icon.ico") {
+            go-winres init
+            go-winres make
+            Write-Host "✅ icon.ico を埋め込むためのリソースファイルを生成しました"
+          } else {
+            Write-Host "⚠ icon.ico が見つかりません。デフォルトのアイコンになります"
+          }
+
+      # ── onedir 相当：バイナリとすべてのリソースファイルをフォルダにまとめる ──
+      - name: Build (onedir)
+        run: |
+          mkdir dist\MC-Pack-Updater
+          go build -ldflags="-H=windowsgui" -o dist\MC-Pack-Updater\MC-Pack-Updater.exe main.go
+          if (Test-Path "icon.ico") { Copy-Item "icon.ico" "dist\MC-Pack-Updater\" }
+          if (Test-Path "API Key Guide.pdf") { Copy-Item "API Key Guide.pdf" "dist\MC-Pack-Updater\" }
+          if (Test-Path "Version_info.txt") { Copy-Item "Version_info.txt" "dist\MC-Pack-Updater\" }
+
+      - name: Zip onedir
+        run: Compress-Archive -Path dist\MC-Pack-Updater -DestinationPath dist\MC-Pack-Updater.zip
+
+      # ── onefile 相当：単一バイナリのビルド ──
+      - name: Clean build cache
+        run: Remove-Item -Recurse -Force dist\MC-Pack-Updater -ErrorAction SilentlyContinue
+
+      - name: Build (onefile)
+        run: |
+          go build -ldflags="-H=windowsgui" -o dist\MC-Pack-Updater.exe main.go
+
+      # ── 直前のReleaseをプレリリースに変更 ──
+      - name: Mark previous release as prerelease
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $releases = gh release list --limit 2 --json tagName | ConvertFrom-Json
+          if ($releases.Count -ge 2) {
+            $prevTag = $releases[1].tagName
+            gh release edit $prevTag --prerelease
+            Write-Host "Marked $prevTag as prerelease"
+          }
+
+      # ── Release ──
+      - name: Upload artifact (zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MC-Pack-Updater-zip
+          path: dist\MC-Pack-Updater.zip
+
+      - name: Upload artifact (exe)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MC-Pack-Updater-exe
+          path: dist\MC-Pack-Updater.exe
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "MC-Pack-Updater build #${{ github.run_number }}"
+          files: |
+            dist\MC-Pack-Updater.zip
+            dist\MC-Pack-Updater.exe
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
