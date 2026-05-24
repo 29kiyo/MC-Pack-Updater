@@ -66,6 +66,7 @@ jobs:
 
       # ── 直前のReleaseをプレリリースに変更 ──
       - name: Mark previous release as prerelease
+        if: github.event_name == 'workflow_dispatch'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -91,7 +92,7 @@ jobs:
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch'
         with:
           tag_name: build-${{ github.run_number }}
           name: "MC-Pack-Updater build #${{ github.run_number }}"
