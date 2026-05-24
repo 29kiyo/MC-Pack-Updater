@@ -456,8 +456,9 @@ class App(tk.Tk):
 
         # 起動構成
         lf0 = ttk.LabelFrame(f, text="🚀  起動構成フォルダ"); lf0.pack(fill="x", **PAD)
-        ttk.Label(lf0, text="指定すると mods / resourcepacks / shaderpacks を自動検出します",
-                   foreground=YEL, background=BG, font=("Segoe UI",8)).pack(anchor="w", padx=10, pady=(4,0))
+        self._profile_note = ttk.Label(lf0, text="指定すると mods / resourcepacks / shaderpacks を自動検出します",
+                   foreground=YEL, background=BG, font=("Segoe UI",8))
+        self._profile_note.pack(anchor="w", padx=10, pady=(4,0))
         r0 = ttk.Frame(lf0); r0.pack(fill="x", padx=10, pady=(4,8))
         ttk.Entry(r0, textvariable=self.profile_dir).pack(side="left", fill="x", expand=True, padx=(0,6))
         ttk.Button(r0, text="参照",       command=lambda: self._browse(self.profile_dir)).pack(side="left", padx=(0,6))
@@ -614,6 +615,7 @@ class App(tk.Tk):
         # モード説明ラベルの色を更新
         self._mode_desc.config(foreground=t["YEL"], background=t["BG"])
         self._ver_status.config(background=t["BG"])
+        self._profile_note.config(foreground=t["YEL"], background=t["BG"])
         # Treeviewの行色を更新
         for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
             panel._tree.tag_configure("odd", background=t["ROW_ODD"])
