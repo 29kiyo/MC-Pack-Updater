@@ -20,8 +20,19 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install pyinstaller pymupdf
+      # ── 【追加】ブートローダーのビルドに必要なMSVCコンパイラを導入 ──
+      - name: Install MSVC Compiler
+        uses: microsoft/setup-msbuild@v2
+
+      # ── 【変更】依存関係のインストールとPyInstaller独自のビルド ──
+      - name: Install dependencies and build custom PyInstaller
+        run: |
+          pip install pymupdf
+          git clone https://github.com
+          cd pyinstaller/bootloader
+          python ./waf distclean all
+          cd ..
+          python -m pip install .
 
       # ── onedir → zip ──
       - name: Build (onedir)
