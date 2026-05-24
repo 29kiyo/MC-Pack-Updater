@@ -50,6 +50,10 @@ def _apply_theme_globals(theme):
     BG, BG2, BG3 = t["BG"], t["BG2"], t["BG3"]
     FG, ACC      = t["FG"], t["ACC"]
     GRN, RED, YEL = t["GRN"], t["RED"], t["YEL"]
+
+def _current_theme():
+    """現在のテーマ名を返す（BGでライト/ダークを判定）"""
+    return "dark" if BG == THEMES["dark"]["BG"] else "light"
 _apply_theme_globals("light")
 
 # ── ユーティリティ ────────────────────────────────────────────
@@ -304,6 +308,10 @@ class FileListPanel(ttk.Frame):
     def populate(self, items):
         for row in self._tree.get_children(): self._tree.delete(row)
         self.items = list(items)
+        # 現在のテーマ色を適用
+        self._tree.tag_configure("even", background=BG2)
+        self._tree.tag_configure("odd",  background=THEMES[_current_theme()]["ROW_ODD"])
+        self._tree.tag_configure("dep",  background=THEMES[_current_theme()]["SEL"])
         for i, it in enumerate(self.items):
             iid     = it["filename"]
             display = it.get("display_name") or it.get("name", iid)
