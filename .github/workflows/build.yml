@@ -2,7 +2,7 @@ name: Build Go EXE
 
 on:
   push:
-    branches: [ go-version]
+    branches: [ go-version ]
     paths-ignore:
       - 'README.md'
   workflow_dispatch:
@@ -18,38 +18,34 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23' # 依存ライブラリの要求に合わせて1.23以上に固定
+          go-version: '1.23'
 
       - name: Install Dependencies
         env:
-          GOPROXY: https://proxy.golang.org,direct # パブリックプロキシを経由させて認証エラーを回避
+          GOPROXY: https://proxy.golang.org,direct
         run: |
           go mod init mc_pack_updater || true
           go get fyne.io/fyne/v2
           go get github.com/gen2brain/go-fitz
-          # Fyne公式のパッケージングツールをインストール
-          go install fyne.io/fyne/v2/cmd/fyne@latest
-
-      # ── icon.ico がある場合に Fyne公式ツールを使ってアイコンを埋め込む ──
-      - name: Prepare Resource with Fyne Tool
-        run: |
-          if (Test-Path "icon.ico") {
-            # Fyneツールで必要なリソースのセットアップを行います
-            Write-Host "✅ icon.ico を検出しました"
-          }
+          # 警告に従い、最新の移行先ビルドツールをインストール
+          go install fyne.io/tools/cmd/fyne@latest
+          # 【重要】不足している go.sum エントリを自動で全て補完・同期する
+          go mod tidy
 
       # ── onedir 相当：バイナリとすべてのリソースファイルをフォルダにまとめる ──
       - name: Build (onedir)
         run: |
           mkdir dist\MC-Pack-Updater
+          $env:PATH += ";$HOME\go\bin"
+          
           if (Test-Path "icon.ico") {
-            # fyneのパッケージ機能を利用して、アイコン埋め込み済みのexeを出力します
-            $env:PATH += ";$HOME\go\bin"
+            # 新しいFyneツールを使ってビルド（モジュール名が mc_pack_updater なので出力は mc_pack_updater.exe になります）
             fyne package -os windows -icon icon.ico
             Move-Item "mc_pack_updater.exe" "dist\MC-Pack-Updater\MC-Pack-Updater.exe"
           } else {
             go build -ldflags="-H=windowsgui" -o dist\MC-Pack-Updater\MC-Pack-Updater.exe main.go
           }
+          
           if (Test-Path "icon.ico") { Copy-Item "icon.ico" "dist\MC-Pack-Updater\" }
           if (Test-Path "API Key Guide.pdf") { Copy-Item "API Key Guide.pdf" "dist\MC-Pack-Updater\" }
           if (Test-Path "Version_info.txt") { Copy-Item "Version_info.txt" "dist\MC-Pack-Updater\" }
@@ -63,9 +59,8 @@ jobs:
 
       - name: Build (onefile)
         run: |
+          $env:PATH += ";$HOME\go\bin"
           if (Test-Path "icon.ico") {
-            # onefile用にもアイコン付きで再ビルド
-            $env:PATH += ";$HOME\go\bin"
             fyne package -os windows -icon icon.ico
             Move-Item "mc_pack_updater.exe" "dist\MC-Pack-Updater.exe"
           } else {
