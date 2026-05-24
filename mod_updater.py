@@ -412,10 +412,14 @@ class App(tk.Tk):
 
     def _build_ui(self):
         hdr = ttk.Frame(self); hdr.pack(fill="x", padx=12, pady=(12,0))
-        ttk.Label(hdr, text="⛏  MC Pack Updater", style="Hdr.TLabel").pack(side="left")
+        hdr.columnconfigure(0, weight=1)
+        hdr.columnconfigure(1, weight=1)
+        hdr.columnconfigure(2, weight=1)
+        ttk.Label(hdr, text="⛏  MC Pack Updater", style="Hdr.TLabel").grid(
+            row=0, column=1, sticky="")
         self._theme_btn = ttk.Button(hdr, text=THEMES[self._theme]["ICON"],
                                       command=self._toggle_theme, width=3)
-        self._theme_btn.pack(side="right")
+        self._theme_btn.grid(row=0, column=2, sticky="e")
         ttk.Label(self, text="Mod / ResourcePack / Shader を一括アップデート",
                    style="Sub.TLabel").pack(pady=(2,8))
         self._nb = ttk.Notebook(self)
