@@ -495,12 +495,22 @@ class App(tk.Tk):
 
         # 個別フォルダ
         lf1 = ttk.LabelFrame(f, text="📁  個別フォルダ指定"); lf1.pack(fill="x", **PAD)
-        for lbl, var in [("🧩 Mods",self.mods_dir),("🎨 ResourcePacks",self.rp_dir),("✨ Shaders",self.shader_dir)]:
+        for lbl, var, load_cmd, upd_cmd in [
+            ("🧩 Mods",         self.mods_dir,   self._load_mods,   lambda: self._start_panel(self._mod_panel,   "Mod")),
+            ("🎨 ResourcePacks", self.rp_dir,     self._load_rp,     lambda: self._start_panel(self._rp_panel,    "ResourcePack")),
+            ("✨ Shaders",       self.shader_dir, self._load_shader, lambda: self._start_panel(self._shader_panel,"Shader")),
+        ]:
             row = ttk.Frame(lf1); row.pack(fill="x", padx=10, pady=3)
             ttk.Label(row, text=lbl, width=18).pack(side="left")
             ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True, padx=(0,6))
-            ttk.Button(row, text="参照", command=lambda v=var: self._browse(v)).pack(side="left", padx=(0,6))
-            ttk.Button(row, text="✕",   command=lambda v=var: v.set(""), width=3).pack(side="left")
+            ttk.Button(row, text="参照",       command=lambda v=var: self._browse(v)).pack(side="left", padx=(0,6))
+            ttk.Button(row, text="📂 読み込む", command=load_cmd).pack(side="left", padx=(0,6))
+            ttk.Button(row, text="⬇ ダウンロード", command=upd_cmd).pack(side="left", padx=(0,6))
+            ttk.Button(row, text="✕",          command=lambda v=var: v.set(""), width=3).pack(side="left")
+        # 全て操作ボタン
+        all_row = ttk.Frame(lf1); all_row.pack(fill="x", padx=10, pady=(4,8))
+        ttk.Button(all_row, text="📂 全て読み込む",        command=self._load_all).pack(side="left", padx=(0,8))
+        ttk.Button(all_row, text="🔄 全て一括アップデート", command=self._start_all).pack(side="left")
 
         # バージョン
         lf2 = ttk.LabelFrame(f, text="🎯  アップデート先"); lf2.pack(fill="x", **PAD)
@@ -548,21 +558,6 @@ class App(tk.Tk):
         ]:
             ttk.Checkbutton(lf4, text=txt, variable=var).pack(padx=10, pady=2, anchor="w")
 
-        # 操作ボタン
-        lf5 = ttk.LabelFrame(f, text="▶  操作"); lf5.pack(fill="x", padx=14, pady=(0,4))
-        top_row = ttk.Frame(lf5); top_row.pack(fill="x", padx=10, pady=(8,4))
-        ttk.Button(top_row, text="📂 全て読み込む",     command=self._load_all).pack(side="left", padx=(0,8))
-        ttk.Button(top_row, text="🔄 全て一括アップデート", command=self._start_all).pack(side="left")
-        ttk.Separator(lf5, orient="horizontal").pack(fill="x", padx=10, pady=4)
-        for lbl, load_cmd, upd_cmd in [
-            ("🧩 Mod",          self._load_mods,   lambda: self._start_panel(self._mod_panel,   "Mod")),
-            ("🎨 ResourcePack", self._load_rp,     lambda: self._start_panel(self._rp_panel,    "ResourcePack")),
-            ("✨ Shader",        self._load_shader, lambda: self._start_panel(self._shader_panel,"Shader")),
-        ]:
-            row = ttk.Frame(lf5); row.pack(fill="x", padx=10, pady=3)
-            ttk.Label(row, text=lbl, width=16).pack(side="left")
-            ttk.Button(row, text="📂 読み込む",     command=load_cmd).pack(side="left", padx=(0,6))
-            ttk.Button(row, text="⬇ アップデート", command=upd_cmd).pack(side="left")
         ttk.Frame(f, height=10).pack()
 
     def _build_lists(self, p):
