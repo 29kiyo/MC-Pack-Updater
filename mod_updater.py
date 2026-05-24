@@ -646,10 +646,12 @@ class App(tk.Tk):
             panel._tree.tag_configure("even", background=t["BG2"])
             panel._tree.tag_configure("odd",  background=t["ROW_ODD"])
             panel._tree.tag_configure("dep",  background=t["SEL"])
-            # 既存の行のタグを再適用
+            # 既存行のタグを再適用して色を即時反映
             for i, row in enumerate(panel._tree.get_children()):
-                current_tags = panel._tree.item(row, "tags")
-                if "dep" not in current_tags:
+                tags = panel._tree.item(row, "tags")
+                if "dep" in tags:
+                    panel._tree.item(row, tags=("dep",))
+                else:
                     panel._tree.item(row, tags=("even" if i%2==0 else "odd",))
 
     def _update_mode_ui(self):
@@ -950,7 +952,7 @@ class App(tk.Tk):
             if delete_old and old_path and os.path.exists(old_path):
                 if os.path.abspath(dest) != os.path.abspath(old_path):
                     os.remove(old_path)
-                    self._log(f"  🗑 旧ファイル削除: {os.path.basename(old_path)}","",log_key)
+                    self._log(f"  🗑 旧ファイル削除: {os.path.basename(old_path)}","warn",log_key)
             self._log("  ✅ 完了","ok",log_key); return True
         except Exception as e:
             self._log(f"  ❌ DL失敗: {e}","err",log_key)
