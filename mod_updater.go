@@ -843,13 +843,13 @@ func (s *AppState) buildUI() {
 func (s *AppState) buildSettingsTab() fyne.CanvasObject {
 	// 各種テキスト入力初期化
 	profEntry := widget.NewEntry()
-	profEntry.Bind(binding.NewString(&s.Config.ProfileDir))
+	profEntry.Bind(binding.BindString(&s.Config.ProfileDir))
 	modsEntry := widget.NewEntry()
-	modsEntry.Bind(binding.NewString(&s.Config.ModsDir))
+	modsEntry.Bind(binding.BindString(&s.Config.ModsDir))
 	rpEntry := widget.NewEntry()
-	rpEntry.Bind(binding.NewString(&s.Config.RpDir))
+	rpEntry.Bind(binding.BindString(&s.Config.RpDir))
 	shadeEntry := widget.NewEntry()
-	shadeEntry.Bind(binding.NewString(&s.Config.ShaderDir))
+	shadeEntry.Bind(binding.BindString(&s.Config.ShaderDir))
 
 	// フォルダ指定欄
 	profRow := container.NewBorder(nil, nil, widget.NewLabel("🚀 起動構成フォルダ:"), container.NewHBox(
@@ -904,7 +904,7 @@ func (s *AppState) buildSettingsTab() fyne.CanvasObject {
 
 	// DL設定
 	s.CfKeyEntry = widget.NewPasswordEntry()
-	s.CfKeyEntry.Bind(binding.NewString(&s.Config.CfApiKey)) // 👈 binding に変更
+	s.CfKeyEntry.Bind(binding.BindString(&s.Config.CfApiKey)) // 👈 BindString に変更
 
 	modeDesc := widget.NewLabel("")
 	s.DlModeSelect = widget.NewSelect(DlModes, func(m string) {
