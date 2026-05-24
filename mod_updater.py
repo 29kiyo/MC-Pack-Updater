@@ -20,8 +20,37 @@ CF_LOADER   = {"forge":1,"fabric":4,"quilt":5,"neoforge":6}
 CF_GAME, CF_MOD, CF_RP, CF_SHADE = 432, 6, 12, 6552
 MR_MOD, MR_RP, MR_SHADE = "mod", "resourcepack", "shader"
 LOADER_MIN  = {"forge":(1,1),"fabric":(1,14),"quilt":(1,16),"neoforge":(1,20,1)}
-BG, BG2, BG3 = "#f4f4f0", "#e8e8e3", "#d0d0c8"
-FG, ACC, GRN, RED, YEL = "#1e1e1e", "#1d4ed8", "#15803d", "#dc2626", "#92400e"
+
+THEMES = {
+    "light": {
+        "BG":  "#f4f4f0", "BG2": "#e8e8e3", "BG3": "#d0d0c8",
+        "FG":  "#1e1e1e", "ACC": "#1d4ed8",
+        "GRN": "#15803d", "RED": "#dc2626", "YEL": "#92400e",
+        "LOG": "#ffffff", "SEL": "#bfdbfe", "SEL_FG": "#1e1e1e",
+        "BTN_FG": "#ffffff", "BTN_ACT": "#3b82f6", "BTN_DIS": "#d0d0c8",
+        "TREE_SEL": "#bfdbfe", "ROW_ODD": "#f0f0eb",
+        "ICON": "🌙",
+    },
+    "dark": {
+        "BG":  "#1e1e2e", "BG2": "#2a2a3e", "BG3": "#45475a",
+        "FG":  "#cdd6f4", "ACC": "#89b4fa",
+        "GRN": "#a6e3a1", "RED": "#f38ba8", "YEL": "#f9e2af",
+        "LOG": "#181825", "SEL": "#313244", "SEL_FG": "#cdd6f4",
+        "BTN_FG": "#1e1e2e", "BTN_ACT": "#74c7ec", "BTN_DIS": "#45475a",
+        "TREE_SEL": "#45475a", "ROW_ODD": "#252535",
+        "ICON": "☀️",
+    },
+}
+
+# グローバルカラー変数（テーマ切り替え時に更新）
+BG = BG2 = BG3 = FG = ACC = GRN = RED = YEL = ""
+def _apply_theme_globals(theme):
+    global BG, BG2, BG3, FG, ACC, GRN, RED, YEL
+    t = THEMES[theme]
+    BG, BG2, BG3 = t["BG"], t["BG2"], t["BG3"]
+    FG, ACC      = t["FG"], t["ACC"]
+    GRN, RED, YEL = t["GRN"], t["RED"], t["YEL"]
+_apply_theme_globals("light")
 
 # ── ユーティリティ ────────────────────────────────────────────
 def load_config():
@@ -338,21 +367,26 @@ class App(tk.Tk):
         self.strict_deps    = tk.BooleanVar(value=cfg.get("strict_deps",False))
         self._cf_key_showing = False
         self._running = self._cancel_flag = False
+        self._theme = cfg.get("theme", "light")
+        _apply_theme_globals(self._theme)
 
         self._apply_style(); self._build_ui(); self._disable_combobox_wheel()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         threading.Thread(target=self._fetch_versions_bg, daemon=True).start()
 
     def _apply_style(self):
+        t = THEMES[self._theme]
+        BG, BG2, BG3 = t["BG"], t["BG2"], t["BG3"]
+        FG, ACC = t["FG"], t["ACC"]
         s = ttk.Style(self); s.theme_use("clam")
         s.configure("TFrame",           background=BG)
         s.configure("TLabel",           background=BG, foreground=FG, font=("Segoe UI",10))
         s.configure("Hdr.TLabel",       background=BG, foreground=ACC, font=("Segoe UI",13,"bold"))
         s.configure("Sub.TLabel",       background=BG, foreground=FG, font=("Segoe UI",9))
-        s.configure("TButton",          background=ACC, foreground="#fff",
+        s.configure("TButton",          background=ACC, foreground=t["BTN_FG"],
                      font=("Segoe UI",10,"bold"), relief="flat", padding=(8,5))
-        s.map("TButton",                background=[("active","#3b82f6"),("disabled",BG3)],
-                                        foreground=[("disabled","#9ca3af")])
+        s.map("TButton",                background=[("active",t["BTN_ACT"]),("disabled",t["BTN_DIS"])],
+                                        foreground=[("disabled","#6c7086")])
         s.configure("TEntry",           fieldbackground=BG2, foreground=FG, insertcolor=FG, relief="flat", padding=4)
         s.configure("TCheckbutton",     background=BG, foreground=FG, font=("Segoe UI",10))
         s.map("TCheckbutton",           background=[("active",BG)])
@@ -360,12 +394,13 @@ class App(tk.Tk):
                      selectbackground=BG2, selectforeground=FG, padding=4)
         s.map("TCombobox",
               fieldbackground=[("readonly",BG2),("disabled",BG3)],
-              foreground=[("readonly",FG),("disabled","#9ca3af")],
+              foreground=[("readonly",FG),("disabled","#6c7086")],
               selectbackground=[("readonly",BG2)], selectforeground=[("readonly",FG)])
         s.configure("Treeview",         background=BG2, foreground=FG, fieldbackground=BG2,
                      rowheight=26, font=("Segoe UI",9))
         s.configure("Treeview.Heading", background=BG, foreground=ACC, font=("Segoe UI",9,"bold"), relief="flat")
-        s.map("Treeview",               background=[("selected","#bfdbfe")], foreground=[("selected",FG)])
+        s.map("Treeview",               background=[("selected",t["TREE_SEL"])],
+                                        foreground=[("selected",t["SEL_FG"])])
         s.configure("TProgressbar",     troughcolor=BG2, background=ACC, thickness=8)
         s.configure("TNotebook",        background=BG, tabmargins=0)
         s.configure("TNotebook.Tab",    background=BG2, foreground=FG, padding=[14,7], font=("Segoe UI",10))
@@ -373,11 +408,16 @@ class App(tk.Tk):
         s.configure("TLabelframe",      background=BG, relief="solid", borderwidth=1, bordercolor=BG3)
         s.configure("TLabelframe.Label",background=BG, foreground=ACC, font=("Segoe UI",10,"bold"))
         s.configure("TSeparator",       background=BG3)
+        self.configure(bg=BG)
 
     def _build_ui(self):
-        ttk.Label(self, text="⛏  MC Pack Updater", style="Hdr.TLabel").pack(pady=(12,2))
+        hdr = ttk.Frame(self); hdr.pack(fill="x", padx=12, pady=(12,0))
+        ttk.Label(hdr, text="⛏  MC Pack Updater", style="Hdr.TLabel").pack(side="left")
+        self._theme_btn = ttk.Button(hdr, text=THEMES[self._theme]["ICON"],
+                                      command=self._toggle_theme, width=3)
+        self._theme_btn.pack(side="right")
         ttk.Label(self, text="Mod / ResourcePack / Shader を一括アップデート",
-                   style="Sub.TLabel").pack(pady=(0,8))
+                   style="Sub.TLabel").pack(pady=(2,8))
         self._nb = ttk.Notebook(self)
         self._nb.pack(fill="both", expand=True, padx=12, pady=(0,4))
         for tab, label in [(ttk.Frame(self._nb), " ⚙ 設定 "),
@@ -522,9 +562,10 @@ class App(tk.Tk):
         p.columnconfigure(2, weight=1); p.rowconfigure(0, weight=1); p.rowconfigure(1, weight=3)
         lf_sys = ttk.LabelFrame(p, text="  🖥 システム  ")
         lf_sys.grid(row=0, column=0, columnspan=3, sticky="nsew", padx=5, pady=(5,2))
-        sys_box = scrolledtext.ScrolledText(lf_sys, bg="#ffffff", fg=FG,
-                                             selectbackground="#bfdbfe", selectforeground=FG,
-                                             insertbackground=FG, height=5,
+        sys_box = scrolledtext.ScrolledText(lf_sys, bg=THEMES[self._theme]["LOG"], fg=THEMES[self._theme]["FG"],
+                                             selectbackground=THEMES[self._theme]["SEL"],
+                                             selectforeground=THEMES[self._theme]["SEL_FG"],
+                                             insertbackground=THEMES[self._theme]["FG"], height=5,
                                              font=("Consolas",9), relief="flat", wrap="word")
         sys_box.pack(fill="both", expand=True, padx=4, pady=(4,0))
         for tag, color in [("ok",GRN),("err",RED),("info",ACC),("warn",YEL)]:
@@ -534,9 +575,11 @@ class App(tk.Tk):
         for col, (key, lbl) in enumerate([("mod","🧩 Mod"),("rp","🎨 ResourcePack"),("shader","✨ Shader")]):
             lf = ttk.LabelFrame(p, text=f"  {lbl}  ")
             lf.grid(row=1, column=col, sticky="nsew", padx=5, pady=(2,5))
-            box = scrolledtext.ScrolledText(lf, bg="#ffffff", fg=FG,
-                                             selectbackground="#bfdbfe", selectforeground=FG,
-                                             insertbackground=FG, font=("Consolas",9), relief="flat", wrap="word")
+            box = scrolledtext.ScrolledText(lf, bg=THEMES[self._theme]["LOG"], fg=THEMES[self._theme]["FG"],
+                                             selectbackground=THEMES[self._theme]["SEL"],
+                                             selectforeground=THEMES[self._theme]["SEL_FG"],
+                                             insertbackground=THEMES[self._theme]["FG"],
+                                             font=("Consolas",9), relief="flat", wrap="word")
             box.pack(fill="both", expand=True, padx=4, pady=(4,0))
             for tag, color in [("ok",GRN),("err",RED),("info",ACC),("warn",YEL)]:
                 box.tag_config(tag, foreground=color)
@@ -554,6 +597,27 @@ class App(tk.Tk):
             if maximum is not None: self._progress.configure(maximum=maximum)
             self._progress.configure(value=v)
         self.after(0, _do)
+
+    def _toggle_theme(self):
+        self._theme = "dark" if self._theme == "light" else "light"
+        _apply_theme_globals(self._theme)
+        self._apply_style()
+        self._theme_btn.config(text=THEMES[self._theme]["ICON"])
+        t = THEMES[self._theme]
+        # ログボックスの色を更新
+        for box in self._log_boxes.values():
+            box.config(bg=t["LOG"], fg=t["FG"],
+                       selectbackground=t["SEL"], selectforeground=t["SEL_FG"],
+                       insertbackground=t["FG"])
+            for tag, color in [("ok",t["GRN"]),("err",t["RED"]),("info",t["ACC"]),("warn",t["YEL"])]:
+                box.tag_config(tag, foreground=color)
+        # モード説明ラベルの色を更新
+        self._mode_desc.config(foreground=t["YEL"], background=t["BG"])
+        self._ver_status.config(background=t["BG"])
+        # Treeviewの行色を更新
+        for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
+            panel._tree.tag_configure("odd", background=t["ROW_ODD"])
+            panel._tree.tag_configure("even", background=t["BG2"])
 
     def _update_mode_ui(self):
         mode = self.dl_mode.get()
@@ -897,6 +961,7 @@ class App(tk.Tk):
             "delete_failed":  self.delete_failed.get(),
             "auto_deps":      self.auto_deps.get(),
             "strict_deps":    self.strict_deps.get(),
+            "theme":          self._theme,
         })
         self.destroy()
 
