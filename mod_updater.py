@@ -312,30 +312,65 @@ class FileListPanel(ttk.Frame):
         self._tree.bind("<<TreeviewSelect>>", self._on_select)
         self._tree.bind("<ButtonRelease-1>",  self._on_select)
 
-        # 右: バージョン選択パネル
-        self._side = ttk.LabelFrame(body, text="  📋 バージョン選択  ")
+        # 右: サイドパネル（スクロール対応）
+        self._side = ttk.LabelFrame(body, text="  📋 詳細  ")
         self._side.pack(side="left", fill="y", padx=(4,4), pady=(0,4))
-        self._side.configure(width=200)
+        self._side.configure(width=220)
         self._side.pack_propagate(False)
 
-        ttk.Label(self._side, text="選択中のMod:").pack(anchor="w", padx=8, pady=(8,2))
-        self._side_name = ttk.Label(self._side, text="—", wraplength=180,
+        side_canvas = tk.Canvas(self._side, highlightthickness=0)
+        side_vsb    = ttk.Scrollbar(self._side, orient="vertical", command=side_canvas.yview)
+        side_canvas.configure(yscrollcommand=side_vsb.set)
+        side_vsb.pack(side="right", fill="y")
+        side_canvas.pack(side="left", fill="both", expand=True)
+        self._side_frame = ttk.Frame(side_canvas)
+        self._side_wid   = side_canvas.create_window((0,0), window=self._side_frame, anchor="nw")
+        self._side_frame.bind("<Configure>",
+            lambda e: side_canvas.configure(scrollregion=side_canvas.bbox("all")))
+        side_canvas.bind("<Configure>",
+            lambda e: side_canvas.itemconfig(self._side_wid, width=e.width))
+        side_canvas.bind("<MouseWheel>",
+            lambda e: side_canvas.yview_scroll(int(-1*(e.delta/120)),"units"))
+        self._side_canvas = side_canvas
+
+        sf = self._side_frame
+
+        # Mod名
+        ttk.Label(sf, text="選択中:", font=("Yu Gothic UI",8)).pack(anchor="w", padx=8, pady=(8,0))
+        self._side_name = ttk.Label(sf, text="—", wraplength=195,
                                      font=("Yu Gothic UI",9,"bold"))
-        self._side_name.pack(anchor="w", padx=8, pady=(0,8))
+        self._side_name.pack(anchor="w", padx=8, pady=(0,6))
 
-        ttk.Label(self._side, text="バージョン:").pack(anchor="w", padx=8, pady=(0,2))
-        self._ver_var = tk.StringVar(value="最新")
-        self._ver_combo = ttk.Combobox(self._side, textvariable=self._ver_var,
-                                        state="readonly", width=22)
-        self._ver_combo.pack(padx=8, pady=(0,4))
+        ttk.Separator(sf, orient="horizontal").pack(fill="x", padx=8, pady=4)
+
+        # バージョン
+        ttk.Label(sf, text="バージョン:").pack(anchor="w", padx=8, pady=(0,2))
+        self._ver_var   = tk.StringVar(value="最新")
+        self._ver_combo = ttk.Combobox(sf, textvariable=self._ver_var,
+                                        state="readonly", width=24)
+        self._ver_combo.pack(padx=8, pady=(0,2), fill="x")
         self._ver_combo.bind("<<ComboboxSelected>>", self._on_ver_select)
+        self._ver_status = ttk.Label(sf, text="", foreground=YEL, font=("Yu Gothic UI",8))
+        self._ver_status.pack(anchor="w", padx=8, pady=(0,4))
+        ttk.Button(sf, text="🔄 バージョン取得",
+                    command=self._fetch_versions).pack(padx=8, pady=(0,6), fill="x")
 
-        self._ver_status = ttk.Label(self._side, text="", foreground=YEL,
-                                      font=("Yu Gothic UI",8))
-        self._ver_status.pack(anchor="w", padx=8)
+        if self.mr_type == MR_MOD:
+            ttk.Separator(sf, orient="horizontal").pack(fill="x", padx=8, pady=4)
 
-        ttk.Button(self._side, text="🔄 バージョン取得",
-                    command=self._fetch_versions).pack(padx=8, pady=(8,4), fill="x")
+            # オプションMod
+            ttk.Label(sf, text="オプションMod:").pack(anchor="w", padx=8, pady=(0,2))
+            self._opt_status = ttk.Label(sf, text="（行を選択して取得）",
+                                          foreground=YEL, font=("Yu Gothic UI",8), wraplength=195)
+            self._opt_status.pack(anchor="w", padx=8, pady=(0,4))
+            ttk.Button(sf, text="📦 オプションMod取得",
+                        command=self._fetch_optional).pack(padx=8, pady=(0,4), fill="x")
+
+            # オプションMod一覧（チェックボックス）
+            self._opt_frame = ttk.Frame(sf)
+            self._opt_frame.pack(fill="x", padx=8, pady=(0,8))
+            self._opt_vars  = {}   # project_id -> BooleanVar
+            self._opt_items = []   # [{pid, name, label}]
 
         self._current_iid = None
 
@@ -406,6 +441,74 @@ class FileListPanel(ttk.Frame):
         """指定ファイルのバージョンオーバーライドを返す（Noneなら最新）"""
         return self._ver_overrides.get(filename)
 
+    def get_optional_checked(self):
+        """チェックされたオプションModのproject_idリストを返す"""
+        if self.mr_type != MR_MOD: return []
+        return [pid for pid, var in getattr(self, "_opt_vars", {}).items() if var.get()]
+
+    def _fetch_optional(self):
+        """選択中のModのオプション依存Modを取得"""
+        if not self._current_iid or self.mr_type != MR_MOD: return
+        item = next((it for it in self.items if it["filename"] == self._current_iid), None)
+        if not item: return
+        self._opt_status.config(text="🔄 取得中...", foreground=YEL)
+        for w in self._opt_frame.winfo_children(): w.destroy()
+        self._opt_vars.clear(); self._opt_items.clear()
+
+        ver_override = self._ver_overrides.get(self._current_iid)
+        # _ver_fetch_fn の __self__ からmc_ver/loaderを取得
+        app = getattr(self._ver_fetch_fn, '__self__', None) if self._ver_fetch_fn else None
+
+        def _fetch():
+            try:
+                sha1   = sha1_file(item["path"]) if item.get("path") and os.path.exists(item["path"]) else None
+                pid    = mr_find_project(sha1, item.get("mod_id",""), item.get("name",""), MR_MOD)
+                if not pid:
+                    self.after(0, lambda: self._opt_status.config(text="⚠ 見つからず", foreground=RED))
+                    return
+                if ver_override:
+                    v_data   = http_get(f"{MODRINTH_API}/version/{ver_override}")
+                    versions = [v_data]
+                else:
+                    mc_ver = app.target_version.get() if app else ""
+                    loader = app.target_loader.get() if app else ""
+                    p      = {"game_versions":json.dumps([mc_ver]),"loaders":json.dumps([loader])}
+                    versions = http_get(f"{MODRINTH_API}/project/{pid}/version?{urllib.parse.urlencode(p)}")
+                if not versions:
+                    self.after(0, lambda: self._opt_status.config(text="⚠ バージョン情報なし", foreground=RED))
+                    return
+                opt_deps = [d for d in versions[0].get("dependencies",[])
+                            if d.get("dependency_type")=="optional" and d.get("project_id")]
+                if not opt_deps:
+                    self.after(0, lambda: self._opt_status.config(text="オプションModなし", foreground=YEL))
+                    return
+                opt_list = []
+                for dep in opt_deps:
+                    dep_pid = dep["project_id"]
+                    try:
+                        proj = http_get(f"{MODRINTH_API}/project/{dep_pid}")
+                        opt_list.append({"pid":dep_pid,"name":proj.get("title",dep_pid)})
+                    except Exception:
+                        opt_list.append({"pid":dep_pid,"name":dep_pid})
+                self.after(0, lambda ol=opt_list: self._show_optional(ol))
+            except Exception as e:
+                self.after(0, lambda: self._opt_status.config(text=f"エラー: {e}", foreground=RED))
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _show_optional(self, opt_list):
+        for w in self._opt_frame.winfo_children(): w.destroy()
+        self._opt_vars.clear()
+        self._opt_items = opt_list
+        for opt in opt_list:
+            var = tk.BooleanVar(value=False)
+            self._opt_vars[opt["pid"]] = var
+            ttk.Checkbutton(self._opt_frame, text=opt["name"],
+                             variable=var, wraplength=185).pack(anchor="w", pady=1)
+        self._opt_status.config(text=f"✅ {len(opt_list)} 件", foreground=GRN)
+        self._side_canvas.update_idletasks()
+        self._side_canvas.configure(scrollregion=self._side_canvas.bbox("all"))
+
     def populate(self, items):
         for row in self._tree.get_children(): self._tree.delete(row)
         self.items = list(items)
@@ -415,6 +518,10 @@ class FileListPanel(ttk.Frame):
         self._ver_combo["values"] = ["最新"]
         self._ver_var.set("最新")
         self._ver_status.config(text="")
+        if self.mr_type == MR_MOD:
+            for w in self._opt_frame.winfo_children(): w.destroy()
+            self._opt_vars.clear(); self._opt_items.clear()
+            self._opt_status.config(text="（行を選択して取得）", foreground=YEL)
         for it in self.items:
             iid     = it["filename"]
             display = it.get("display_name") or it.get("name", iid)
@@ -1022,6 +1129,36 @@ class App(tk.Tk):
                                                 item.get("path"), do_del_old, do_del_fail, key)
                 if success:
                     results[key]["ok"].append(name)
+                    # チェックされたオプションModをDL（Modのみ）
+                    if mr_type == MR_MOD:
+                        for opt_pid in self._mod_panel.get_optional_checked():
+                            self._log(f"  📦 オプションMod DL: {opt_pid}", "info", key)
+                            try:
+                                vs = mr_get_versions(opt_pid, mc_ver, loader)
+                                if vs:
+                                    du, df = mr_best_file(vs[0])
+                                    if du and df:
+                                        ddest = os.path.join(out_dir, df)
+                                        if os.path.exists(ddest):
+                                            self._log(f"  📦 既存: {df}", "ok", key)
+                                        else:
+                                            self._do_download(du, ddest, df, "Modrinth",
+                                                               None, False, do_del_fail, key)
+                                            results[key]["ok"].append(f"[オプション] {df}")
+                                            # オプションModの前提Modも処理
+                                            for odep_pid, odep_vid in mr_get_deps(vs[0]):
+                                                if odep_pid in done_deps: continue
+                                                done_deps.add(odep_pid)
+                                                dep_vs = mr_get_versions(odep_pid, mc_ver, loader)
+                                                if dep_vs:
+                                                    ddu, ddf = mr_best_file(dep_vs[0])
+                                                    if ddu and ddf and not os.path.exists(os.path.join(out_dir, ddf)):
+                                                        self._do_download(ddu, os.path.join(out_dir, ddf),
+                                                                           ddf, "Modrinth", None,
+                                                                           False, do_del_fail, key)
+                                                        results[key]["ok"].append(f"[依存] {ddf}")
+                            except Exception as e:
+                                self._log(f"  📦 オプションModエラー: {e}", "err", key)
                     if mr_type == MR_MOD and auto_deps and version_obj:
                         for dep_pid, dep_vid in mr_get_deps(version_obj):
                             if dep_pid in done_deps: continue
