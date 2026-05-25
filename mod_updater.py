@@ -433,12 +433,14 @@ class App(tk.Tk):
         self._nb.pack(fill="both", expand=True, padx=12, pady=(0,4))
         for tab, label in [(ttk.Frame(self._nb), " ⚙ 設定 "),
                             (ttk.Frame(self._nb), " 📦 一覧 "),
-                            (ttk.Frame(self._nb), " 📋 ログ ")]:
+                            (ttk.Frame(self._nb), " 📋 ログ "),
+                            (ttk.Frame(self._nb), " 🔌 プラグイン ")]:
             self._nb.add(tab, text=label)
         tabs = self._nb.tabs()
         self._build_settings(self._nb.nametowidget(tabs[0]))
         self._build_lists(self._nb.nametowidget(tabs[1]))
         self._build_log(self._nb.nametowidget(tabs[2]))
+        self._build_plugin_tab(self._nb.nametowidget(tabs[3]))
         bar = ttk.Frame(self); bar.pack(fill="x", padx=12, pady=(0,8))
         self._progress   = ttk.Progressbar(bar, mode="determinate")
         self._progress.pack(side="left", fill="x", expand=True, padx=(0,10))
@@ -607,6 +609,25 @@ class App(tk.Tk):
             self._progress.configure(value=v)
         self.after(0, _do)
 
+    def _build_plugin_tab(self, p):
+        """plugin_updater.py を動的にインポートしてプラグインタブに埋め込む"""
+        try:
+            base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+            plugin_path = os.path.join(base, "plugin_updater.py")
+            import importlib.util
+            spec   = importlib.util.spec_from_file_location("plugin_updater", plugin_path)
+            mod    = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            mod._apply_theme_globals(self._theme)
+            self._plugin_app = mod.PluginUpdaterApp(p, theme=self._theme,
+                                                     icon_path=self._icon_path)
+            self._plugin_app.pack(fill="both", expand=True)
+            self._plugin_app._disable_combobox_wheel()
+        except Exception as e:
+            ttk.Label(p, text=f"プラグインタブの読み込みに失敗しました\n{e}",
+                       foreground=RED).pack(expand=True)
+            self._plugin_app = None
+
     def _toggle_theme(self):
         self._theme = "dark" if self._theme == "light" else "light"
         _apply_theme_globals(self._theme)
@@ -629,6 +650,9 @@ class App(tk.Tk):
         for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
             panel._tree.configure(background=t["BG2"], foreground=t["FG"],
                                    fieldbackground=t["BG2"])
+        # プラグインタブにも適用
+        if hasattr(self, "_plugin_app") and self._plugin_app:
+            self._plugin_app.apply_theme(self._theme)
 
     def _update_mode_ui(self):
         mode = self.dl_mode.get()
