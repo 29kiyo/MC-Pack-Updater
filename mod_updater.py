@@ -216,7 +216,7 @@ def cf_get_file(cf_id, mc_ver, loader, api_key, mr_type=MR_MOD):
     except Exception: return None
 
 # ── 統合検索 ──────────────────────────────────────────────────
-def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key, mr_type, cf_class, log_cb):
+def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key, mr_type, cf_class, log_cb, **kwargs):
     do_mr = mode in (DL_BOTH, DL_CF_FIRST, DL_MR)
     do_cf = mode in (DL_BOTH, DL_CF_FIRST, DL_CF)
     dl_url = dl_fname = source = version_obj = None
@@ -227,7 +227,14 @@ def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key, mr_type, cf_c
             sha1 = sha1_file(path) if path and os.path.exists(path) else None
             pid  = mr_find_project(sha1, mod_id, name, mr_type)
             if not pid: log_cb("  Modrinth: 見つからず","warn"); return
-            vs = mr_get_versions(pid, mc_ver, loader, mr_type)
+            # バージョンオーバーライドがある場合はそのバージョンを直接取得
+            ver_override = kwargs.get("ver_override")
+            if ver_override:
+                v_data = http_get(f"{MODRINTH_API}/version/{ver_override}")
+                vs = [v_data]
+                log_cb(f"  Modrinth: 指定バージョンを使用","info")
+            else:
+                vs = mr_get_versions(pid, mc_ver, loader, mr_type)
             if not vs: log_cb(f"  Modrinth: {mc_ver} 対応なし","warn"); return
             version_obj = vs[0]
             dl_url, dl_fname = mr_best_file(vs[0]); source = "Modrinth"
@@ -257,13 +264,18 @@ def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key, mr_type, cf_c
 # FileListPanel
 # ══════════════════════════════════════════════════════════════
 class FileListPanel(ttk.Frame):
-    def __init__(self, parent, mr_type, load_fn, update_fn, **kw):
+    def __init__(self, parent, mr_type, load_fn, update_fn, ver_fetch_fn=None, **kw):
         super().__init__(parent, **kw)
-        self.mr_type, self._load_fn, self._update_fn = mr_type, load_fn, update_fn
-        self.items = []
+        self.mr_type       = mr_type
+        self._load_fn      = load_fn
+        self._update_fn    = update_fn
+        self._ver_fetch_fn = ver_fetch_fn  # (item, callback) -> None
+        self.items         = []
+        self._ver_overrides = {}  # filename -> version_id or None（Noneなら最新）
         self._build()
 
     def _build(self):
+        # ── ツールバー ──
         top = ttk.Frame(self)
         top.pack(fill="x", padx=6, pady=(6,2))
         for text, w, cmd in [("全選択",6,lambda:self._sel_all(True)),
@@ -275,28 +287,135 @@ class FileListPanel(ttk.Frame):
         self._sel_label = ttk.Label(top, text="0 / 0 件", width=12, anchor="e")
         self._sel_label.pack(side="right", padx=4)
 
+        # ── 左右分割 ──
+        body = ttk.Frame(self); body.pack(fill="both", expand=True)
+
+        # 左: Treeview
+        left = ttk.Frame(body); left.pack(side="left", fill="both", expand=True)
         if self.mr_type == MR_MOD:
             cols  = ("chk","name","version","loader")
-            heads = [("chk","✔",36),("name","名前",200),("version","バージョン",95),("loader","Loader",70)]
+            heads = [("chk","✔",36),("name","名前",180),("version","バージョン",90),("loader","Loader",66)]
         else:
             cols  = ("chk","name")
-            heads = [("chk","✔",36),("name","名前",280)]
+            heads = [("chk","✔",36),("name","名前",240)]
 
-        self._tree = ttk.Treeview(self, columns=cols, show="headings", selectmode="none")
+        self._tree = ttk.Treeview(left, columns=cols, show="headings", selectmode="none")
         for cid, lbl, w in heads:
             self._tree.heading(cid, text=lbl)
             self._tree.column(cid, width=w, minwidth=w if cid!="name" else 80,
                                anchor="center" if cid=="chk" else "w", stretch=(cid=="name"))
-        vsb = ttk.Scrollbar(self, orient="vertical", command=self._tree.yview)
+        vsb = ttk.Scrollbar(left, orient="vertical", command=self._tree.yview)
         self._tree.configure(yscrollcommand=vsb.set)
         self._tree.pack(side="left", fill="both", expand=True, padx=(4,0), pady=(0,4))
         vsb.pack(side="left", fill="y", pady=(0,4), padx=(0,4))
-        self._tree.bind("<Button-1>", self._on_click)
+        self._tree.bind("<Button-1>",        self._on_click)
+        self._tree.bind("<<TreeviewSelect>>", self._on_select)
+        self._tree.bind("<ButtonRelease-1>",  self._on_select)
+
+        # 右: バージョン選択パネル
+        self._side = ttk.LabelFrame(body, text="  📋 バージョン選択  ")
+        self._side.pack(side="left", fill="y", padx=(4,4), pady=(0,4))
+        self._side.configure(width=200)
+        self._side.pack_propagate(False)
+
+        ttk.Label(self._side, text="選択中のMod:").pack(anchor="w", padx=8, pady=(8,2))
+        self._side_name = ttk.Label(self._side, text="—", wraplength=180,
+                                     font=("Yu Gothic UI",9,"bold"))
+        self._side_name.pack(anchor="w", padx=8, pady=(0,8))
+
+        ttk.Label(self._side, text="バージョン:").pack(anchor="w", padx=8, pady=(0,2))
+        self._ver_var = tk.StringVar(value="最新")
+        self._ver_combo = ttk.Combobox(self._side, textvariable=self._ver_var,
+                                        state="readonly", width=22)
+        self._ver_combo.pack(padx=8, pady=(0,4))
+        self._ver_combo.bind("<<ComboboxSelected>>", self._on_ver_select)
+
+        self._ver_status = ttk.Label(self._side, text="", foreground=YEL,
+                                      font=("Yu Gothic UI",8))
+        self._ver_status.pack(anchor="w", padx=8)
+
+        ttk.Button(self._side, text="🔄 バージョン取得",
+                    command=self._fetch_versions).pack(padx=8, pady=(8,4), fill="x")
+
+        self._current_iid = None
+
+    def _on_select(self, e):
+        rows = self._tree.selection()
+        if not rows:
+            # selectionが空の場合はクリックした行を取得
+            row = self._tree.identify_row(e.y if hasattr(e,'y') else 0)
+            if not row: return
+        else:
+            row = rows[0]
+        if row == self._current_iid: return
+        self._current_iid = row
+        item = next((it for it in self.items if it["filename"] == row), None)
+        if not item: return
+        name = item.get("display_name") or item.get("name", row)
+        self._side_name.config(text=name)
+        # 既にバージョン取得済みなら表示
+        override = self._ver_overrides.get(row)
+        self._ver_combo["values"] = ["最新"]
+        self._ver_var.set("最新" if override is None else override)
+        self._ver_status.config(text="← 取得ボタンでバージョン一覧を取得")
+
+    def _fetch_versions(self):
+        """選択中のModのバージョン一覧をAPIから取得"""
+        if not self._current_iid: return
+        item = next((it for it in self.items if it["filename"] == self._current_iid), None)
+        if not item: return
+        if not self._ver_fetch_fn:
+            self._ver_status.config(text="バージョン取得非対応", foreground=RED); return
+
+        self._ver_status.config(text="🔄 取得中...", foreground=YEL)
+        self._ver_combo.config(state="disabled")
+
+        def _cb(versions):
+            """versions: [{"label": "1.21.4 - v2.0", "id": "xxx"}, ...]"""
+            labels = ["最新"] + [v["label"] for v in versions]
+            self._ver_combo["values"] = labels
+            self._ver_combo.config(state="readonly")
+            cur = self._ver_overrides.get(self._current_iid)
+            if cur:
+                matched = next((v["label"] for v in versions if v["id"] == cur), None)
+                self._ver_var.set(matched or "最新")
+            else:
+                self._ver_var.set("最新")
+            self._ver_status.config(
+                text=f"✅ {len(versions)} 件取得" if versions else "⚠ バージョンなし",
+                foreground=GRN if versions else RED)
+            self._versions_cache = versions
+
+        self._versions_cache = []
+        threading.Thread(target=lambda: self._ver_fetch_fn(item, _cb), daemon=True).start()
+
+    def _on_ver_select(self, e=None):
+        if not self._current_iid: return
+        label = self._ver_var.get()
+        if label == "最新":
+            self._ver_overrides.pop(self._current_iid, None)
+        else:
+            ver_id = next((v["id"] for v in getattr(self, "_versions_cache", [])
+                           if v["label"] == label), None)
+            self._ver_overrides[self._current_iid] = ver_id
+        self._ver_status.config(
+            text="✅ 最新でDL" if label == "最新" else f"✅ {label} を選択",
+            foreground=GRN)
+
+    def get_version_override(self, filename):
+        """指定ファイルのバージョンオーバーライドを返す（Noneなら最新）"""
+        return self._ver_overrides.get(filename)
 
     def populate(self, items):
         for row in self._tree.get_children(): self._tree.delete(row)
         self.items = list(items)
-        for i, it in enumerate(self.items):
+        self._ver_overrides.clear()
+        self._current_iid = None
+        self._side_name.config(text="—")
+        self._ver_combo["values"] = ["最新"]
+        self._ver_var.set("最新")
+        self._ver_status.config(text="")
+        for it in self.items:
             iid     = it["filename"]
             display = it.get("display_name") or it.get("name", iid)
             vals    = (("☑",display,it.get("version","?"),it.get("loader","?"))
@@ -323,6 +442,10 @@ class FileListPanel(ttk.Frame):
             cur = self._tree.set(row,"chk")
             self._tree.set(row,"chk","☑" if cur=="☐" else "☐")
             self._upd_label()
+        # サイドパネル更新
+        if row:
+            self._tree.selection_set(row)
+            self._on_select(e)
 
     def _sel_all(self, v):
         mark = "☑" if v else "☐"
@@ -549,23 +672,48 @@ class App(tk.Tk):
         ttk.Frame(f, height=10).pack()
 
     def _build_lists(self, p):
-        p.columnconfigure(0, weight=1); p.columnconfigure(1, weight=1)
-        p.columnconfigure(2, weight=1); p.rowconfigure(0, weight=1)
-        for col, (attr, mr_type, lbl, load_fn, upd_fn) in enumerate([
-            ("_mod_panel",    MR_MOD,   "🧩 Mod",          "_load_mods",   "_mod_panel"),
-            ("_rp_panel",     MR_RP,    "🎨 ResourcePack",  "_load_rp",     "_rp_panel"),
-            ("_shader_panel", MR_SHADE, "✨ Shader",         "_load_shader", "_shader_panel"),
-        ]):
-            lf = ttk.LabelFrame(p, text=f"  {lbl}  ")
-            lf.grid(row=0, column=col, sticky="nsew", padx=5, pady=5)
-            panel = FileListPanel(lf, mr_type,
-                                   load_fn=getattr(self, load_fn.replace("_mod_panel","_load_mods")
-                                                   .replace("_rp_panel","_load_rp")
-                                                   .replace("_shader_panel","_load_shader"), None)
-                                            or self.__getattribute__(load_fn),
-                                   update_fn=lambda p=attr: self._start_panel(getattr(self, p), lbl))
+        inner_nb = ttk.Notebook(p)
+        inner_nb.pack(fill="both", expand=True)
+
+        for attr, mr_type, lbl, load_fn, upd_fn in [
+            ("_mod_panel",    MR_MOD,   "🧩 Mod",          self._load_mods,   lambda: self._start_panel(self._mod_panel,   "Mod")),
+            ("_rp_panel",     MR_RP,    "🎨 ResourcePack",  self._load_rp,     lambda: self._start_panel(self._rp_panel,    "ResourcePack")),
+            ("_shader_panel", MR_SHADE, "✨ Shader",         self._load_shader, lambda: self._start_panel(self._shader_panel,"Shader")),
+        ]:
+            tab = ttk.Frame(inner_nb)
+            inner_nb.add(tab, text=f" {lbl} ")
+            panel = FileListPanel(tab, mr_type,
+                                   load_fn=load_fn,
+                                   update_fn=upd_fn,
+                                   ver_fetch_fn=self._make_ver_fetch_fn(mr_type))
             panel.pack(fill="both", expand=True)
             setattr(self, attr, panel)
+
+    def _make_ver_fetch_fn(self, mr_type):
+        """バージョン取得関数を生成して返す"""
+        def _fetch(item, callback):
+            mc_ver = self.target_version.get()
+            loader = self.target_loader.get()
+            name   = item.get("name", item["filename"])
+            mod_id = item.get("mod_id", "")
+            path   = item.get("path")
+            try:
+                sha1 = sha1_file(path) if path and os.path.exists(path) else None
+                pid  = mr_find_project(sha1, mod_id, name, mr_type)
+                if not pid:
+                    self.after(0, lambda: callback([]))
+                    return
+                # RP/Shaderはloaderなし
+                p = {"game_versions": json.dumps([mc_ver])}
+                if mr_type == MR_MOD: p["loaders"] = json.dumps([loader])
+                versions = http_get(
+                    f"{MODRINTH_API}/project/{pid}/version?{urllib.parse.urlencode(p)}")
+                result = [{"label": f"{v.get('version_number','?')}  [{v.get('game_versions',['?'])[-1]}]",
+                           "id": v["id"]} for v in versions]
+                self.after(0, lambda r=result: callback(r))
+            except Exception as e:
+                self.after(0, lambda: callback([]))
+        return _fetch
 
     def _build_log(self, p):
         self._log_boxes = {}
@@ -814,7 +962,12 @@ class App(tk.Tk):
     def _build_tasks(self, panel):
         dir_map  = {MR_MOD:self.mods_dir.get(),MR_RP:self.rp_dir.get(),MR_SHADE:self.shader_dir.get()}
         cf_class = {MR_MOD:CF_MOD,MR_RP:CF_RP,MR_SHADE:CF_SHADE}[panel.mr_type]
-        return [(it, dir_map[panel.mr_type], panel.mr_type, cf_class) for it in panel.get_selected()]
+        tasks = []
+        for it in panel.get_selected():
+            it = dict(it)  # コピー
+            it["_ver_override"] = panel.get_version_override(it["filename"])
+            tasks.append((it, dir_map[panel.mr_type], panel.mr_type, cf_class))
+        return tasks
 
     def _start_panel(self, panel, label):
         if not self._validate_cf(): return
@@ -858,7 +1011,8 @@ class App(tk.Tk):
 
             dl_url, dl_fname, source, version_obj = find_dl_info(
                 name, item.get("mod_id",""), item.get("path"),
-                mc_ver, loader, mode, cf_key, mr_type, cf_class, _log)
+                mc_ver, loader, mode, cf_key, mr_type, cf_class, _log,
+                ver_override=item.get("_ver_override"))
 
             if dl_url and dl_fname:
                 dest       = os.path.join(out_dir, dl_fname)
