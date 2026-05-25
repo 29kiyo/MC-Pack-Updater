@@ -21,22 +21,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: |
-          pip install pymupdf pillow wheel setuptools
-
-      - name: Clone PyInstaller
-        run: git clone https://github.com/pyinstaller/pyinstaller.git
-
-      - name: Build custom bootloader
-        shell: cmd
-        run: |
-          cd pyinstaller\bootloader
-          python waf all
-
-      - name: Install custom PyInstaller
-        run: |
-          cd pyinstaller
-          pip install .
+        run: pip install pyinstaller pymupdf
 
       # ── onedir → zip ──
       - name: Build (onedir)
@@ -45,6 +30,7 @@ jobs:
             --icon icon.ico `
             --add-data "icon.ico;." `
             --add-data "API Key Guide.pdf;." `
+            --add-data "plugin_updater.py;." `
             --version-file version_info.txt `
             mod_updater.py
 
@@ -61,10 +47,11 @@ jobs:
             --icon icon.ico `
             --add-data "icon.ico;." `
             --add-data "API Key Guide.pdf;." `
+            --add-data "plugin_updater.py;." `
             --version-file version_info.txt `
             mod_updater.py
 
-      # ── 直前のReleaseをプレリリースに変更 ──
+      # ── 直前のReleaseをプレリリースに変更（手動実行時のみ） ──
       - name: Mark previous release as prerelease
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -77,7 +64,7 @@ jobs:
             Write-Host "Marked $prevTag as prerelease"
           }
 
-      # ── Release ──
+      # ── Release（手動実行時のみ） ──
       - name: Upload artifact (zip)
         uses: actions/upload-artifact@v4
         with:
