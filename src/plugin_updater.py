@@ -1,4 +1,5 @@
 import os, re, sys, json, zipfile, hashlib, threading, tkinter as tk
+
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import urllib.request, urllib.parse, webbrowser
 
@@ -296,7 +297,7 @@ class PluginUpdaterApp(ttk.Frame):
         PAD = dict(padx=12, pady=(0,8))
 
         # Pluginsフォルダ
-        lf0 = ttk.LabelFrame(f, text="🔌  Pluginsフォルダ"); lf0.pack(fill="x", **PAD, pady=(8,8))
+        lf0 = ttk.LabelFrame(f, text="🔌  Pluginsフォルダ"); lf0.pack(fill="x", padx=12, pady=(8,8))
         r0  = ttk.Frame(lf0); r0.pack(fill="x", padx=10, pady=8)
         ttk.Entry(r0, textvariable=self.plugins_dir).pack(side="left",fill="x",expand=True,padx=(0,6))
         ttk.Button(r0, text="参照",         command=lambda: self._browse(self.plugins_dir)).pack(side="left",padx=(0,6))
