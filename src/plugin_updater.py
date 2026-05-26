@@ -84,12 +84,32 @@ def fetch_mc_versions():
     except Exception: return MC_VERSIONS_FALLBACK
 
 # ── JAR解析 ───────────────────────────────────────────────────
+def clean_plugin_name(raw):
+    """ファイル名からバージョン番号等を除去して検索用の名前を返す"""
+    name = raw
+    # -1.2.3 / _1.2.3 / -v1.2.3 形式のバージョンを除去
+    name = re.sub(r'[-_]v?\d+[\.\d]*[a-zA-Z\-]*$', '', name, flags=re.I)
+    # -Velocity / -Bukkit / -Paper / -Spigot などのサフィックスを除去
+    name = re.sub(r'[-_](velocity|bukkit|paper|spigot|bungee|fabric|forge|folia)$', '', name, flags=re.I)
+    return name.strip("-_ ") or raw
+
 def read_jar_meta(jar_path):
-    info = {"filename":os.path.basename(jar_path),"path":jar_path,
-            "name":os.path.basename(jar_path),"version":"","depend":[]}
+    fname = os.path.basename(jar_path)
+    # ファイル名から拡張子を除いてバージョンを除去した名前をデフォルトにする
+    base_name = clean_plugin_name(os.path.splitext(fname)[0])
+    info = {"filename":fname,"path":jar_path,
+            "name":base_name,"version":"","depend":[]}
     try:
         with zipfile.ZipFile(jar_path) as zf:
             names = zf.namelist()
+            # Velocityプラグイン
+            if "velocity-plugin.json" in names:
+                d = json.loads(zf.read("velocity-plugin.json").decode("utf-8",errors="ignore"))
+                info["name"]    = d.get("name") or d.get("id") or base_name
+                info["version"] = d.get("version","")
+                info["depend"]  = list(d.get("dependencies",{}).keys())
+                return info
+            # Spigot/Paper/Bukkit/BungeeCord
             yml_file = next((n for n in ("plugin.yml","paper-plugin.yml","bungee.yml") if n in names), None)
             if yml_file:
                 raw = zf.read(yml_file).decode("utf-8",errors="ignore")
@@ -100,9 +120,9 @@ def read_jar_meta(jar_path):
                     elif line.startswith("version:"):
                         info["version"] = line.split(":",1)[1].strip().strip('"\'')
                     elif line.startswith("depend:"):
-                        deps_str = line.split(":",1)[1].strip()
-                        deps_str = deps_str.strip("[]")
+                        deps_str = line.split(":",1)[1].strip().strip("[]")
                         info["depend"] = [d.strip().strip('"\'') for d in deps_str.split(",") if d.strip()]
+                return info
     except Exception: pass
     return info
 
@@ -285,8 +305,11 @@ class PluginUpdaterApp(ttk.Frame):
         self._settings_canvas = canvas
         f   = ttk.Frame(canvas)
         wid = canvas.create_window((0,0), window=f, anchor="nw")
-        f.bind("<Configure>",      lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfig(wid, width=e.width))
+        def _update_scroll(e=None):
+            canvas.update_idletasks()
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        f.bind("<Configure>", lambda e: _update_scroll())
+        canvas.bind("<Configure>", lambda e: (canvas.itemconfig(wid, width=e.width), _update_scroll()))
         def _wheel(e):
             if isinstance(e.widget, ttk.Combobox): return
             try:
@@ -715,9 +738,16 @@ class PluginUpdaterApp(ttk.Frame):
         self._ver_status.config(background=t["BG"])
 
     def save_config(self):
-        save_config({"plugins_dir":self.plugins_dir.get(),"target_version":self.target_version.get(),
-                     "dl_mode":self.dl_mode.get(),"delete_old":self.delete_old.get(),
-                     "delete_failed":self.delete_failed.get(),"auto_deps":self.auto_deps.get()})
+        existing = load_config()
+        existing.update({
+            "plugins_dir":    self.plugins_dir.get(),
+            "target_version": self.target_version.get(),
+            "dl_mode":        self.dl_mode.get(),
+            "delete_old":     self.delete_old.get(),
+            "delete_failed":  self.delete_failed.get(),
+            "auto_deps":      self.auto_deps.get(),
+        })
+        save_config(existing)
 
 # ── スタンドアロン ────────────────────────────────────────────
 class StandaloneApp(tk.Tk):
