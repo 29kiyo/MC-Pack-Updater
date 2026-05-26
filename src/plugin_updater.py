@@ -1,5 +1,4 @@
 import os, re, sys, json, zipfile, hashlib, threading, tkinter as tk
-import concurrent.futures
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import urllib.request, urllib.parse, webbrowser
 
