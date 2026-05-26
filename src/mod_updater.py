@@ -353,24 +353,7 @@ class FileListPanel(ttk.Frame):
         self._ver_status = ttk.Label(sf, text="", foreground=YEL, font=("Yu Gothic UI",8))
         self._ver_status.pack(anchor="w", padx=8, pady=(0,4))
         ttk.Button(sf, text="🔄 バージョン取得",
-                    command=self._fetch_versions).pack(padx=8, pady=(0,6), fill="x")
-
-        if self.mr_type == MR_MOD:
-            ttk.Separator(sf, orient="horizontal").pack(fill="x", padx=8, pady=4)
-
-            # オプションMod
-            ttk.Label(sf, text="オプションMod:").pack(anchor="w", padx=8, pady=(0,2))
-            self._opt_status = ttk.Label(sf, text="（行を選択して取得）",
-                                          foreground=YEL, font=("Yu Gothic UI",8), wraplength=195)
-            self._opt_status.pack(anchor="w", padx=8, pady=(0,4))
-            ttk.Button(sf, text="📦 オプションMod取得",
-                        command=self._fetch_optional).pack(padx=8, pady=(0,4), fill="x")
-
-            # オプションMod一覧（チェックボックス）
-            self._opt_frame = ttk.Frame(sf)
-            self._opt_frame.pack(fill="x", padx=8, pady=(0,8))
-            self._opt_vars  = {}   # project_id -> BooleanVar
-            self._opt_items = []   # [{pid, name, label}]
+                    command=self._fetch_versions).pack(padx=8, pady=(0,8), fill="x")
 
         self._current_iid = None
 
@@ -441,92 +424,6 @@ class FileListPanel(ttk.Frame):
         """指定ファイルのバージョンオーバーライドを返す（Noneなら最新）"""
         return self._ver_overrides.get(filename)
 
-    def get_optional_checked(self):
-        """チェックされたオプションModのproject_idリストを返す"""
-        if self.mr_type != MR_MOD: return []
-        return [pid for pid, var in getattr(self, "_opt_vars", {}).items() if var.get()]
-
-    def _fetch_optional(self):
-        """選択中のModのオプション依存Modを取得（バージョン未選択でも最新で取得）"""
-        if not self._current_iid or self.mr_type != MR_MOD: return
-        item = next((it for it in self.items if it["filename"] == self._current_iid), None)
-        if not item: return
-        self._opt_status.config(text="🔄 取得中...", foreground=YEL)
-        for w in self._opt_frame.winfo_children(): w.destroy()
-        self._opt_vars.clear(); self._opt_items.clear()
-
-        ver_override = self._ver_overrides.get(self._current_iid)
-        app = getattr(self._ver_fetch_fn, '__self__', None) if self._ver_fetch_fn else None
-
-        def _fetch():
-            try:
-                sha1 = sha1_file(item["path"]) if item.get("path") and os.path.exists(item["path"]) else None
-                pid  = mr_find_project(sha1, item.get("mod_id",""), item.get("name",""), MR_MOD)
-                if not pid:
-                    self.after(0, lambda: self._opt_status.config(text="⚠ 見つからず", foreground=RED))
-                    return
-
-                if ver_override:
-                    # 特定バージョン指定あり
-                    v_data   = http_get(f"{MODRINTH_API}/version/{ver_override}")
-                    versions = [v_data]
-                else:
-                    # バージョン未選択 or 最新 → MCバージョン指定で最新を取得
-                    mc_ver = app.target_version.get() if app else ""
-                    loader = app.target_loader.get() if app else ""
-                    if mc_ver:
-                        p = {"game_versions":json.dumps([mc_ver]),"loaders":json.dumps([loader])}
-                        versions = http_get(f"{MODRINTH_API}/project/{pid}/version?{urllib.parse.urlencode(p)}")
-                    else:
-                        # MCバージョンも未設定なら全バージョンの最新1件
-                        versions = http_get(f"{MODRINTH_API}/project/{pid}/version?limit=1")
-
-                if not versions:
-                    self.after(0, lambda: self._opt_status.config(text="⚠ バージョン情報なし", foreground=RED))
-                    return
-
-                opt_deps = [d for d in versions[0].get("dependencies",[])
-                            if d.get("dependency_type")=="optional" and d.get("project_id")]
-                if not opt_deps:
-                    self.after(0, lambda: self._opt_status.config(text="オプションModなし", foreground=YEL))
-                    return
-
-                # プロジェクト名を並列取得して高速化
-                import concurrent.futures
-                opt_list = [None] * len(opt_deps)
-                def _get_proj(idx, dep):
-                    dep_pid = dep["project_id"]
-                    try:
-                        proj = http_get(f"{MODRINTH_API}/project/{dep_pid}")
-                        return idx, {"pid":dep_pid,"name":proj.get("title",dep_pid)}
-                    except Exception:
-                        return idx, {"pid":dep_pid,"name":dep_pid}
-
-                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-                    futures = [ex.submit(_get_proj, i, dep) for i, dep in enumerate(opt_deps)]
-                    for f in concurrent.futures.as_completed(futures):
-                        idx, result = f.result()
-                        opt_list[idx] = result
-
-                self.after(0, lambda ol=opt_list: self._show_optional(ol))
-            except Exception as e:
-                self.after(0, lambda: self._opt_status.config(text=f"エラー: {e}", foreground=RED))
-
-        threading.Thread(target=_fetch, daemon=True).start()
-
-    def _show_optional(self, opt_list):
-        for w in self._opt_frame.winfo_children(): w.destroy()
-        self._opt_vars.clear()
-        self._opt_items = opt_list
-        for opt in opt_list:
-            var = tk.BooleanVar(value=False)
-            self._opt_vars[opt["pid"]] = var
-            ttk.Checkbutton(self._opt_frame, text=opt["name"],
-                             variable=var, wraplength=185).pack(anchor="w", pady=1)
-        self._opt_status.config(text=f"✅ {len(opt_list)} 件", foreground=GRN)
-        self._side_canvas.update_idletasks()
-        self._side_canvas.configure(scrollregion=self._side_canvas.bbox("all"))
-
     def populate(self, items):
         for row in self._tree.get_children(): self._tree.delete(row)
         self.items = list(items)
@@ -536,10 +433,6 @@ class FileListPanel(ttk.Frame):
         self._ver_combo["values"] = ["最新"]
         self._ver_var.set("最新")
         self._ver_status.config(text="")
-        if self.mr_type == MR_MOD:
-            for w in self._opt_frame.winfo_children(): w.destroy()
-            self._opt_vars.clear(); self._opt_items.clear()
-            self._opt_status.config(text="（行を選択して取得）", foreground=YEL)
         for it in self.items:
             iid     = it["filename"]
             display = it.get("display_name") or it.get("name", iid)
@@ -616,6 +509,11 @@ class App(tk.Tk):
         self.delete_failed  = tk.BooleanVar(value=cfg.get("delete_failed",False))
         self.auto_deps      = tk.BooleanVar(value=cfg.get("auto_deps",True))
         self.strict_deps    = tk.BooleanVar(value=cfg.get("strict_deps",False))
+        # 全体設定
+        self.auto_switch_tab  = tk.BooleanVar(value=cfg.get("auto_switch_tab",True))
+        self.toast_enabled    = tk.BooleanVar(value=cfg.get("toast_enabled",True))
+        self.toast_duration   = tk.IntVar(value=cfg.get("toast_duration",3))
+        self._toast_win       = None   # 現在表示中のトースト
         self._cf_key_showing = False
         self._running = self._cancel_flag = False
         self._theme = cfg.get("theme", "light")
@@ -682,13 +580,15 @@ class App(tk.Tk):
         for tab, label in [(ttk.Frame(self._nb), " ⚙ 設定 "),
                             (ttk.Frame(self._nb), " 📦 一覧 "),
                             (ttk.Frame(self._nb), " 📋 ログ "),
-                            (ttk.Frame(self._nb), " 🔌 プラグイン ")]:
+                            (ttk.Frame(self._nb), " 🔌 プラグイン "),
+                            (ttk.Frame(self._nb), " 🌐 全体設定 ")]:
             self._nb.add(tab, text=label)
         tabs = self._nb.tabs()
         self._build_settings(self._nb.nametowidget(tabs[0]))
         self._build_lists(self._nb.nametowidget(tabs[1]))
         self._build_log(self._nb.nametowidget(tabs[2]))
         self._build_plugin_tab(self._nb.nametowidget(tabs[3]))
+        self._build_global_settings(self._nb.nametowidget(tabs[4]))
         bar = ttk.Frame(self); bar.pack(fill="x", padx=12, pady=(0,8))
         self._progress   = ttk.Progressbar(bar, mode="determinate")
         self._progress.pack(side="left", fill="x", expand=True, padx=(0,10))
@@ -696,6 +596,68 @@ class App(tk.Tk):
         self._prog_label.pack(side="left")
         self._cancel_btn = ttk.Button(bar, text="⏹ 中止", command=self._cancel, state="disabled")
         self._cancel_btn.pack(side="left", padx=(8,0))
+
+    def _build_global_settings(self, p):
+        f = ttk.Frame(p); f.pack(fill="both", expand=True, padx=20, pady=16)
+
+        # 一覧自動移動
+        lf1 = ttk.LabelFrame(f, text="📦  一覧タブ"); lf1.pack(fill="x", pady=(0,10))
+        ttk.Checkbutton(lf1, text="読み込み完了後に自動で一覧タブへ移動する",
+                         variable=self.auto_switch_tab).pack(padx=10, pady=8, anchor="w")
+
+        # トースト通知
+        lf2 = ttk.LabelFrame(f, text="🔔  通知"); lf2.pack(fill="x", pady=(0,10))
+        ttk.Checkbutton(lf2, text="読み込み完了時にトースト通知を表示する",
+                         variable=self.toast_enabled).pack(padx=10, pady=(8,4), anchor="w")
+        dur_row = ttk.Frame(lf2); dur_row.pack(fill="x", padx=10, pady=(0,8))
+        ttk.Label(dur_row, text="通知の表示時間:").pack(side="left")
+        ttk.Spinbox(dur_row, from_=1, to=30, textvariable=self.toast_duration,
+                     width=5, state="readonly").pack(side="left", padx=(6,4))
+        ttk.Label(dur_row, text="秒  （上限: 30秒）").pack(side="left")
+
+    def _show_toast(self, message):
+        """アプリ右下にトースト通知を表示する"""
+        if not self.toast_enabled.get(): return
+        # 既存のトーストを閉じる
+        if self._toast_win and self._toast_win.winfo_exists():
+            self._toast_win.destroy()
+
+        t = THEMES[self._theme]
+        toast = tk.Toplevel(self)
+        toast.overrideredirect(True)   # タイトルバーなし
+        toast.attributes("-topmost", True)
+        toast.configure(bg=t["BG3"])
+        if self._icon_path:
+            try: toast.iconbitmap(self._icon_path)
+            except Exception: pass
+        self._toast_win = toast
+
+        # 内容
+        frame = tk.Frame(toast, bg=t["BG2"], relief="solid", bd=1)
+        frame.pack(fill="both", expand=True, padx=1, pady=1)
+
+        tk.Label(frame, text="✅ " + message,
+                  bg=t["BG2"], fg=t["FG"],
+                  font=("Yu Gothic UI",10), wraplength=280,
+                  justify="left", padx=12, pady=8).pack(side="left", fill="both", expand=True)
+        tk.Button(frame, text="×", bg=t["BG2"], fg=t["FG"],
+                   font=("Yu Gothic UI",10), relief="flat", cursor="hand2",
+                   command=toast.destroy, padx=6).pack(side="right", anchor="n", pady=4)
+
+        # 位置計算（ウィンドウ右下）
+        def _position():
+            self.update_idletasks(); toast.update_idletasks()
+            wx, wy = self.winfo_x(), self.winfo_y()
+            ww, wh = self.winfo_width(), self.winfo_height()
+            tw, th = toast.winfo_reqwidth(), toast.winfo_reqheight()
+            x = wx + ww - tw - 20
+            y = wy + wh - th - 20
+            toast.geometry(f"{tw}x{th}+{x}+{y}")
+        self.after(10, _position)
+
+        # 自動消去
+        secs = max(1, min(30, self.toast_duration.get()))
+        self.after(secs * 1000, lambda: toast.destroy() if toast.winfo_exists() else None)
 
     def _build_settings(self, p):
         t = THEMES[self._theme]
@@ -1057,16 +1019,31 @@ class App(tk.Tk):
         return True
 
     def _load_mods(self):
-        if self._load_dir(self.mods_dir, ".jar", self._mod_panel, "mod", "Mod"): self._nb.select(1)
+        if self._load_dir(self.mods_dir, ".jar", self._mod_panel, "mod", "Mod"):
+            if self.auto_switch_tab.get(): self._nb.select(1)
+            self._show_toast("Modを読み込みました。")
 
     def _load_rp(self):
-        if self._load_dir(self.rp_dir, ".zip", self._rp_panel, "rp", "ResourcePack"): self._nb.select(1)
+        if self._load_dir(self.rp_dir, ".zip", self._rp_panel, "rp", "ResourcePack"):
+            if self.auto_switch_tab.get(): self._nb.select(1)
+            self._show_toast("ResourcePackを読み込みました。")
 
     def _load_shader(self):
-        if self._load_dir(self.shader_dir, ".zip", self._shader_panel, "shader", "Shader"): self._nb.select(1)
+        if self._load_dir(self.shader_dir, ".zip", self._shader_panel, "shader", "Shader"):
+            if self.auto_switch_tab.get(): self._nb.select(1)
+            self._show_toast("Shaderを読み込みました。")
 
     def _load_all(self):
-        self._load_mods(); self._load_rp(); self._load_shader(); self._nb.select(1)
+        loaded = []
+        if self._load_dir(self.mods_dir, ".jar", self._mod_panel, "mod", "Mod"):
+            loaded.append("Mod")
+        if self._load_dir(self.rp_dir, ".zip", self._rp_panel, "rp", "ResourcePack"):
+            loaded.append("ResourcePack")
+        if self._load_dir(self.shader_dir, ".zip", self._shader_panel, "shader", "Shader"):
+            loaded.append("Shader")
+        if loaded:
+            if self.auto_switch_tab.get(): self._nb.select(1)
+            self._show_toast("・".join(loaded) + "を読み込みました。")
 
     def _load_from_profile(self):
         base = self.profile_dir.get().strip()
@@ -1081,6 +1058,7 @@ class App(tk.Tk):
             messagebox.showwarning("確認", f"mods / resourcepacks / shaderpacks が見つかりませんでした\n{base}"); return
         self._log(f"🚀 起動構成検出: {base}", "info", "sys")
         for sub in found: self._log(f"   ✓ {sub}", "ok", "sys")
+        # _load_allでまとめて読み込み・トースト通知
         self._load_all()
 
     # ── アップデート ──────────────────────────────────────────
@@ -1147,36 +1125,6 @@ class App(tk.Tk):
                                                 item.get("path"), do_del_old, do_del_fail, key)
                 if success:
                     results[key]["ok"].append(name)
-                    # チェックされたオプションModをDL（Modのみ）
-                    if mr_type == MR_MOD:
-                        for opt_pid in self._mod_panel.get_optional_checked():
-                            self._log(f"  📦 オプションMod DL: {opt_pid}", "info", key)
-                            try:
-                                vs = mr_get_versions(opt_pid, mc_ver, loader)
-                                if vs:
-                                    du, df = mr_best_file(vs[0])
-                                    if du and df:
-                                        ddest = os.path.join(out_dir, df)
-                                        if os.path.exists(ddest):
-                                            self._log(f"  📦 既存: {df}", "ok", key)
-                                        else:
-                                            self._do_download(du, ddest, df, "Modrinth",
-                                                               None, False, do_del_fail, key)
-                                            results[key]["ok"].append(f"[オプション] {df}")
-                                            # オプションModの前提Modも処理
-                                            for odep_pid, odep_vid in mr_get_deps(vs[0]):
-                                                if odep_pid in done_deps: continue
-                                                done_deps.add(odep_pid)
-                                                dep_vs = mr_get_versions(odep_pid, mc_ver, loader)
-                                                if dep_vs:
-                                                    ddu, ddf = mr_best_file(dep_vs[0])
-                                                    if ddu and ddf and not os.path.exists(os.path.join(out_dir, ddf)):
-                                                        self._do_download(ddu, os.path.join(out_dir, ddf),
-                                                                           ddf, "Modrinth", None,
-                                                                           False, do_del_fail, key)
-                                                        results[key]["ok"].append(f"[依存] {ddf}")
-                            except Exception as e:
-                                self._log(f"  📦 オプションModエラー: {e}", "err", key)
                     if mr_type == MR_MOD and auto_deps and version_obj:
                         for dep_pid, dep_vid in mr_get_deps(version_obj):
                             if dep_pid in done_deps: continue
@@ -1305,6 +1253,9 @@ class App(tk.Tk):
             "delete_failed":  self.delete_failed.get(),
             "auto_deps":      self.auto_deps.get(),
             "strict_deps":    self.strict_deps.get(),
+            "auto_switch_tab":self.auto_switch_tab.get(),
+            "toast_enabled":  self.toast_enabled.get(),
+            "toast_duration": self.toast_duration.get(),
             "theme":          self._theme,
         })
         self.destroy()
