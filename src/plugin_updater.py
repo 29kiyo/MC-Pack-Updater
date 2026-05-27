@@ -128,22 +128,23 @@ def read_jar_meta(jar_path):
 
 # ── Spiget API ────────────────────────────────────────────────
 def spiget_search(name, size=10):
-    """プラグイン名でSpigetを検索。複数の検索方法を試みる"""
+    """プラグイン名でSpigetを検索。IDは必ず数値で返す"""
     try:
-        # URLエンコードして検索
         encoded = urllib.parse.quote(name, safe="")
-        params  = urllib.parse.urlencode({"size":size,"sort":"-downloads",
-                                           "fields":"id,name,tag,version,external,file"})
+        params  = urllib.parse.urlencode({
+            "size": size, "sort": "-downloads",
+            "fields": "id,name,tag,version,external,file",
+        })
         results = http_get(f"{SPIGET_API}/resources/search/{encoded}?{params}")
-        if not results: return None
+        if not isinstance(results, list) or not results: return None
         name_lower = name.lower()
-        # 完全一致を優先
         for r in results:
-            if r.get("name","").lower() == name_lower: return r
-        # 部分一致
+            if r.get("name","").lower() == name_lower:
+                r["id"] = int(r["id"]); return r
         for r in results:
-            if name_lower in r.get("name","").lower(): return r
-        return results[0]
+            if name_lower in r.get("name","").lower():
+                r["id"] = int(r["id"]); return r
+        results[0]["id"] = int(results[0]["id"]); return results[0]
     except Exception: return None
 
 def spiget_get_versions(resource_id, size=20):
@@ -251,11 +252,12 @@ def find_plugin(name, mc_ver, mode, log_cb, ver_override_id=None):
 # PluginUpdaterApp
 # ══════════════════════════════════════════════════════════════
 class PluginUpdaterApp(ttk.Frame):
-    def __init__(self, parent, theme="light", icon_path=None, **kw):
+    def __init__(self, parent, theme="light", icon_path=None, parent_app=None, **kw):
         super().__init__(parent, **kw)
-        self._theme     = theme
-        self._icon_path = icon_path
-        self._running   = False
+        self._theme      = theme
+        self._icon_path  = icon_path
+        self._parent_app = parent_app   # mod_updater.App への参照（全体設定用）
+        self._running    = False
         self._cancel_flag = False
         _apply_theme_globals(theme)
 
@@ -306,10 +308,10 @@ class PluginUpdaterApp(ttk.Frame):
         f   = ttk.Frame(canvas)
         wid = canvas.create_window((0,0), window=f, anchor="nw")
         def _update_scroll(e=None):
-            canvas.update_idletasks()
             canvas.configure(scrollregion=canvas.bbox("all"))
-        f.bind("<Configure>", lambda e: _update_scroll())
-        canvas.bind("<Configure>", lambda e: (canvas.itemconfig(wid, width=e.width), _update_scroll()))
+        f.bind("<Configure>", lambda e: self.after(10, _update_scroll))
+        canvas.bind("<Configure>", lambda e: (canvas.itemconfig(wid, width=e.width),
+                                               self.after(10, _update_scroll)))
         def _wheel(e):
             if isinstance(e.widget, ttk.Combobox): return
             try:
@@ -605,7 +607,15 @@ class PluginUpdaterApp(ttk.Frame):
                                values=("☑", it.get("name",it["filename"]), it.get("version","?")))
         self._upd_label()
         self._log(f"✅ {len(jars)} 件読み込み完了","ok")
-        self._nb.select(1)
+        # 全体設定の自動タブ移動
+        app = self._parent_app
+        if app and hasattr(app, "auto_switch_tab"):
+            if app.auto_switch_tab.get(): self._nb.select(1)
+        else:
+            self._nb.select(1)
+        # トースト通知
+        if app and hasattr(app, "_show_toast"):
+            app._show_toast("プラグインを読み込みました。")
 
     # ── アップデート ──────────────────────────────────────────
     def _start_update(self):
@@ -738,8 +748,8 @@ class PluginUpdaterApp(ttk.Frame):
         self._ver_status.config(background=t["BG"])
 
     def save_config(self):
-        existing = load_config()
-        existing.update({
+        cfg = load_config()
+        cfg.update({
             "plugins_dir":    self.plugins_dir.get(),
             "target_version": self.target_version.get(),
             "dl_mode":        self.dl_mode.get(),
@@ -747,7 +757,7 @@ class PluginUpdaterApp(ttk.Frame):
             "delete_failed":  self.delete_failed.get(),
             "auto_deps":      self.auto_deps.get(),
         })
-        save_config(existing)
+        save_config(cfg)
 
 # ── スタンドアロン ────────────────────────────────────────────
 class StandaloneApp(tk.Tk):

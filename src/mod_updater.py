@@ -855,7 +855,8 @@ class App(tk.Tk):
             spec.loader.exec_module(mod)
             mod._apply_theme_globals(self._theme)
             self._plugin_app = mod.PluginUpdaterApp(p, theme=self._theme,
-                                                     icon_path=self._icon_path)
+                                                     icon_path=self._icon_path,
+                                                     parent_app=self)
             self._plugin_app.pack(fill="both", expand=True)
             self._plugin_app._disable_combobox_wheel()
         except Exception as e:
