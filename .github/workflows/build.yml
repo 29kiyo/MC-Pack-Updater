@@ -13,10 +13,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -66,19 +66,19 @@ jobs:
 
       # ── Release（手動実行時のみ） ──
       - name: Upload artifact (zip)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: MC-Pack-Updater-zip
           path: dist\MC-Pack-Updater.zip
 
       - name: Upload artifact (exe)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: MC-Pack-Updater-exe
           path: dist\MC-Pack-Updater.exe
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         if: github.event_name == 'workflow_dispatch'
         with:
           tag_name: build-${{ github.run_number }}
