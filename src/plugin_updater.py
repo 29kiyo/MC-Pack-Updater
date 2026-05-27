@@ -309,9 +309,9 @@ class PluginUpdaterApp(ttk.Frame):
         wid = canvas.create_window((0,0), window=f, anchor="nw")
         def _update_scroll(e=None):
             canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.yview_moveto(0)
         f.bind("<Configure>", lambda e: self.after(10, _update_scroll))
-        canvas.bind("<Configure>", lambda e: (canvas.itemconfig(wid, width=e.width),
-                                               self.after(10, _update_scroll)))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(wid, width=e.width))
         def _wheel(e):
             if isinstance(e.widget, ttk.Combobox): return
             try:
