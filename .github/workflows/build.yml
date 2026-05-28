@@ -27,6 +27,8 @@ jobs:
       - name: Build (onedir)
         run: |
           pyinstaller --onedir --windowed --noupx --name "MC-Pack-Updater" `
+            --hidden-import=requests `
+            --hidden-import=urllib3 `
             --icon assets\icon.ico `
             --add-data "assets\icon.ico;." `
             --add-data "assets\API Key Guide.pdf;." `
@@ -44,6 +46,8 @@ jobs:
       - name: Build (onefile)
         run: |
           pyinstaller --onefile --windowed --noupx --name "MC-Pack-Updater" `
+            --hidden-import=requests `
+            --hidden-import=urllib3 `
             --icon assets\icon.ico `
             --add-data "assets\icon.ico;." `
             --add-data "assets\API Key Guide.pdf;." `
