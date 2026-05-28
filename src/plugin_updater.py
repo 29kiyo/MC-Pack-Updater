@@ -50,7 +50,7 @@ def http_get(url,headers=None):
     req.add_header("Referer","https://api.spiget.org/")
     with urllib.request.urlopen(req,timeout=15) as r: return json.loads(r.read().decode())
 
-def download_file(url, dest, progress_cb=None):
+def download_file(url, dest, progress_cb=None,log_cb=None):
 
     session = requests.Session()
 
@@ -76,8 +76,9 @@ def download_file(url, dest, progress_cb=None):
             allow_redirects=True
         )
 
-        print("STATUS:", r.status_code)
-        print("FINAL URL:", r.url)
+        if log_cb:
+            log_cb(f"STATUS: {r.status_code}", "info")
+            log_cb(f"FINAL URL: {r.url}", "info")
 
         if r.status_code != 403:
             break
@@ -627,7 +628,7 @@ class PluginUpdaterApp(ttk.Frame):
     def _do_download(self,url,dest,name,source,old_path,delete_old,delete_fail):
         try:
             self._log(f"  ⬇ DL中 [{source}]: {os.path.basename(dest)}")
-            download_file(url,dest,lambda p:self._set_status(f"DL: {name[:18]} {p*100:.0f}%"))
+            download_file(url,dest,lambda p:self._set_status(f"DL: {name[:18]} {p*100:.0f}%"),self._log)
             if delete_old and old_path and os.path.exists(old_path):
                 if os.path.abspath(dest)!=os.path.abspath(old_path):
                     os.remove(old_path); self._log(f"  🗑 旧ファイル削除: {os.path.basename(old_path)}","warn")
