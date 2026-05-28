@@ -41,12 +41,18 @@ def save_config(data):
 
 def http_get(url,headers=None):
     req=urllib.request.Request(url,headers=headers or {})
-    req.add_header("User-Agent","MC-Plugin-Updater/3.0 (github.com/29kiyo/mod-updater)")
+    req.add_header("User-Agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+    req.add_header("Accept","application/json,text/plain,*/*")
+    req.add_header("Accept-Language","ja,en-US;q=0.9,en;q=0.8")
+    req.add_header("Referer","https://api.spiget.org/")
     with urllib.request.urlopen(req,timeout=15) as r: return json.loads(r.read().decode())
 
 def download_file(url,dest,progress_cb=None):
     req=urllib.request.Request(url)
-    req.add_header("User-Agent","MC-Plugin-Updater/3.0")
+    req.add_header("User-Agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+    req.add_header("Accept","application/octet-stream,*/*")
+    req.add_header("Accept-Language","ja,en-US;q=0.9,en;q=0.8")
+    req.add_header("Referer","https://api.spiget.org/")
     with urllib.request.urlopen(req,timeout=60) as r:
         total=int(r.headers.get("Content-Length",0)); done=0
         with open(dest,"wb") as f:
