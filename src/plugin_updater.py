@@ -47,18 +47,41 @@ def http_get(url,headers=None):
     req.add_header("Referer","https://api.spiget.org/")
     with urllib.request.urlopen(req,timeout=15) as r: return json.loads(r.read().decode())
 
-def download_file(url,dest,progress_cb=None):
-    req=urllib.request.Request(url)
-    req.add_header("User-Agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-    req.add_header("Accept","application/octet-stream,*/*")
-    req.add_header("Accept-Language","ja,en-US;q=0.9,en;q=0.8")
-    req.add_header("Referer","https://api.spiget.org/")
-    with urllib.request.urlopen(req,timeout=60) as r:
-        total=int(r.headers.get("Content-Length",0)); done=0
-        with open(dest,"wb") as f:
-            while chunk:=r.read(65536):
-                f.write(chunk); done+=len(chunk)
-                if progress_cb and total: progress_cb(done/total)
+def download_file(url, dest, progress_cb=None):
+    req = urllib.request.Request(url)
+
+    req.add_header(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0 Safari/537.36"
+    )
+
+    req.add_header("Accept", "*/*")
+    req.add_header("Accept-Language", "ja,en-US;q=0.9,en;q=0.8")
+    req.add_header("Referer", "https://www.spigotmc.org/")
+    req.add_header("Origin", "https://www.spigotmc.org")
+
+    with urllib.request.urlopen(req, timeout=60) as r:
+
+        # ← 最終URL確認
+        final_url = r.geturl()
+
+        if "spigotmc.org" in final_url.lower():
+            raise Exception(
+                f"SpigotMCへリダイレクトされました: {final_url}"
+            )
+
+        total = int(r.headers.get("Content-Length", 0))
+        done = 0
+
+        with open(dest, "wb") as f:
+            while chunk := r.read(65536):
+                f.write(chunk)
+                done += len(chunk)
+
+                if progress_cb and total:
+                    progress_cb(done / total)
 
 def fetch_mc_versions():
     try:
@@ -129,10 +152,13 @@ def spiget_get_versions(rid,size=30):
         return http_get(f"{SPIGET_API}/resources/{rid}/versions?{params}")
     except Exception: return []
 
-def spiget_download_url(rid,version_id=None):
-    if version_id:
-        return f"{SPIGET_API}/resources/{rid}/versions/{version_id}/download"
-    return f"{SPIGET_API}/resources/{rid}/versions/latest/download"
+def spiget_download_url(rid, version_id=None):
+    # 最新版は CDN キャッシュ優先
+    if version_id is None:
+        return f"{SPIGET_API}/resources/{rid}/download"
+
+    # バージョン指定時のみ versions を使う
+    return f"{SPIGET_API}/resources/{rid}/versions/{version_id}/download"
 
 # ── Modrinth API ──────────────────────────────────────────────
 def mr_search_plugin(name):
