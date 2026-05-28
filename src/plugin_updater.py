@@ -1,6 +1,9 @@
 import os, re, sys, json, zipfile, threading, tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
-import urllib.request, urllib.parse, webbrowser
+import urllib.parse
+import webbrowser
+import requests
+import time
 
 SPIGET_API   = "https://api.spiget.org/v2"
 MODRINTH_API = "https://api.modrinth.com/v2"
@@ -48,40 +51,63 @@ def http_get(url,headers=None):
     with urllib.request.urlopen(req,timeout=15) as r: return json.loads(r.read().decode())
 
 def download_file(url, dest, progress_cb=None):
-    req = urllib.request.Request(url)
 
-    req.add_header(
-        "User-Agent",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/125.0 Safari/537.36"
-    )
+    session = requests.Session()
 
-    req.add_header("Accept", "*/*")
-    req.add_header("Accept-Language", "ja,en-US;q=0.9,en;q=0.8")
-    req.add_header("Referer", "https://www.spigotmc.org/")
-    req.add_header("Origin", "https://www.spigotmc.org")
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0 Safari/537.36"
+        ),
+        "Referer": "https://www.spigotmc.org/",
+        "Accept": "*/*",
+    }
 
-    with urllib.request.urlopen(req, timeout=60) as r:
+    retry_delays = [2, 5]
 
-        # ← 最終URL確認
-        final_url = r.geturl()
+    for attempt in range(len(retry_delays) + 1):
 
-        if "spigotmc.org" in final_url.lower():
-            raise Exception(
-                f"SpigotMCへリダイレクトされました: {final_url}"
-            )
+        r = session.get(
+            url,
+            headers=headers,
+            stream=True,
+            timeout=60,
+            allow_redirects=True
+        )
 
-        total = int(r.headers.get("Content-Length", 0))
-        done = 0
+        print("STATUS:", r.status_code)
+        print("FINAL URL:", r.url)
 
-        with open(dest, "wb") as f:
-            while chunk := r.read(65536):
-                f.write(chunk)
-                done += len(chunk)
+        if r.status_code != 403:
+            break
 
-                if progress_cb and total:
-                    progress_cb(done / total)
+        if attempt < len(retry_delays):
+            delay = retry_delays[attempt]
+            print(f"403 -> retry in {delay}s")
+            time.sleep(delay)
+            continue
+
+        raise Exception(f"403 Forbidden: {r.url}")
+
+    r.raise_for_status()
+
+    total = int(r.headers.get("content-length", 0))
+    done = 0
+
+    with open(dest, "wb") as f:
+
+        for chunk in r.iter_content(chunk_size=65536):
+
+            if not chunk:
+                continue
+
+            f.write(chunk)
+
+            done += len(chunk)
+
+            if progress_cb and total:
+                progress_cb(done / total)
 
 def fetch_mc_versions():
     try:
