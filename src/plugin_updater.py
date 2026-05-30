@@ -1,19 +1,9 @@
 import os, re, sys, json, zipfile, threading, tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
-import urllib.parse
-import webbrowser
-import requests
-import time
+import urllib.request, urllib.parse
 
-SPIGET_API   = "https://api.spiget.org/v2"
 MODRINTH_API = "https://api.modrinth.com/v2"
 CONFIG_FILE  = os.path.join(os.path.expanduser("~"), ".mc_plugin_updater_config.json")
-
-DL_BOTH_MR  = "両方（Modrinth優先）"
-DL_BOTH_SP  = "両方（Spiget優先）"
-DL_MR       = "Modrinthのみ"
-DL_SP       = "Spigetのみ"
-DL_MODES    = [DL_BOTH_MR, DL_BOTH_SP, DL_MR, DL_SP]
 
 THEMES = {
     "light": {"BG":"#f4f4f0","BG2":"#e8e8e3","BG3":"#d0d0c8","FG":"#1e1e1e","ACC":"#1d4ed8",
@@ -42,81 +32,20 @@ def save_config(data):
         with open(CONFIG_FILE,"w",encoding="utf-8") as f: json.dump(data,f,ensure_ascii=False,indent=2)
     except Exception: pass
 
-def http_get(url,headers=None):
-    req=urllib.request.Request(url,headers=headers or {})
-    req.add_header("User-Agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-    req.add_header("Accept","application/json,text/plain,*/*")
-    req.add_header("Accept-Language","ja,en-US;q=0.9,en;q=0.8")
-    req.add_header("Referer","https://api.spiget.org/")
+def http_get(url):
+    req=urllib.request.Request(url)
+    req.add_header("User-Agent","MC-Plugin-Updater/4.0")
     with urllib.request.urlopen(req,timeout=15) as r: return json.loads(r.read().decode())
 
-def download_file(url, dest, progress_cb=None,log_cb=None):
-
-    session = requests.Session()
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/125.0 Safari/537.36"
-        ),
-        "Referer": "https://www.spigotmc.org/",
-        "Accept": "*/*",
-    }
-
-    retry_delays = [2, 5]
-
-    for attempt in range(len(retry_delays) + 1):
-
-        r = session.get(
-            url,
-            headers=headers,
-            stream=True,
-            timeout=60,
-            allow_redirects=True
-        )
-
-        if log_cb:
-            log_cb(f"STATUS: {r.status_code}", "info")
-            log_cb(f"FINAL URL: {r.url}", "info")
-
-        if r.status_code != 403:
-            break
-
-        if attempt < len(retry_delays):
-            delay = retry_delays[attempt]
-            print(f"403 -> retry in {delay}s")
-            time.sleep(delay)
-            continue
-
-        raise Exception(f"403 Forbidden: {r.url}")
-
-    r.raise_for_status()
-
-    total = int(r.headers.get("content-length", 0))
-    done = 0
-
-    with open(dest, "wb") as f:
-
-        for chunk in r.iter_content(chunk_size=65536):
-
-            if not chunk:
-                continue
-
-            f.write(chunk)
-
-            done += len(chunk)
-
-            if progress_cb and total:
-                progress_cb(done / total)
-
-def fetch_mc_versions():
-    try:
-        data=http_get(f"{MODRINTH_API}/tag/game_version")
-        releases=[v["version"] for v in data if v.get("version_type")=="release" and "." in v.get("version","")]
-        releases.sort(key=lambda v:tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.\-]",v)),reverse=True)
-        return releases or ["1.21.4","1.20.1","1.19.4","1.18.2"]
-    except Exception: return ["1.21.4","1.20.1","1.19.4","1.18.2"]
+def download_file(url,dest,progress_cb=None):
+    req=urllib.request.Request(url)
+    req.add_header("User-Agent","MC-Plugin-Updater/4.0")
+    with urllib.request.urlopen(req,timeout=60) as r:
+        total=int(r.headers.get("Content-Length",0)); done=0
+        with open(dest,"wb") as f:
+            while chunk:=r.read(65536):
+                f.write(chunk); done+=len(chunk)
+                if progress_cb and total: progress_cb(done/total)
 
 def clean_plugin_name(raw):
     n=re.sub(r'[-_]v?\d+[\.\d]*[a-zA-Z\-]*$','',raw,flags=re.I)
@@ -149,44 +78,6 @@ def read_jar_meta(jar_path):
     except Exception: pass
     return info
 
-# ── Spiget API ────────────────────────────────────────────────
-def spiget_search(name):
-    """完全一致優先でリソースIDを取得"""
-    try:
-        encoded=urllib.parse.quote(name,safe="")
-        params=urllib.parse.urlencode({"size":10,"sort":"-downloads","fields":"id,name,external"})
-        results=http_get(f"{SPIGET_API}/search/resources/{encoded}?{params}")
-        if not isinstance(results,list) or not results: return None
-        name_l=name.lower()
-        for r in results:
-            if r.get("name","").lower()==name_l:
-                return int(r["id"])
-        for r in results:
-            if name_l in r.get("name","").lower() and not r.get("external"):
-                return int(r["id"])
-        if not results[0].get("external"):
-            return int(results[0]["id"])
-        return None
-    except Exception: return None
-
-def spiget_get_latest(rid):
-    try: return http_get(f"{SPIGET_API}/resources/{rid}/versions/latest")
-    except Exception: return None
-
-def spiget_get_versions(rid,size=30):
-    try:
-        params=urllib.parse.urlencode({"size":size,"sort":"-releaseDate"})
-        return http_get(f"{SPIGET_API}/resources/{rid}/versions?{params}")
-    except Exception: return []
-
-def spiget_download_url(rid, version_id=None):
-    # 最新版は CDN キャッシュ優先
-    if version_id is None:
-        return f"{SPIGET_API}/resources/{rid}/download"
-
-    # バージョン指定時のみ versions を使う
-    return f"{SPIGET_API}/resources/{rid}/versions/{version_id}/download"
-
 # ── Modrinth API ──────────────────────────────────────────────
 def mr_search_plugin(name):
     try:
@@ -212,53 +103,20 @@ def mr_best_file(vo):
         if fi.get("primary"): break
     return du,df
 
-# ── 統合検索 ──────────────────────────────────────────────────
-def find_plugin(name,mode,log_cb,ver_id=None,spiget_rid=None):
-    do_mr=mode in (DL_BOTH_MR,DL_BOTH_SP,DL_MR)
-    do_sp=mode in (DL_BOTH_MR,DL_BOTH_SP,DL_SP)
-    sp_first=mode==DL_BOTH_SP
-    dl_url=dl_fname=source=res_info=None
-
-    def _try_mr():
-        nonlocal dl_url,dl_fname,source,res_info
-        try:
-            pid=mr_search_plugin(name)
-            if not pid: log_cb("  Modrinth: 見つからず","warn"); return
-            if ver_id:
-                v_data=http_get(f"{MODRINTH_API}/version/{ver_id}")
-                vs=[v_data]
-            else:
-                vs=mr_get_plugin_versions(pid)
-            if not vs: log_cb("  Modrinth: 対応なし","warn"); return
-            dl_url,dl_fname=mr_best_file(vs[0]); source="Modrinth"
-            res_info={"type":"modrinth","id":pid,"version_obj":vs[0]}
-            log_cb(f"  ✓ Modrinth: {dl_fname}","ok")
-        except Exception as e: log_cb(f"  Modrinth エラー: {e}","err")
-
-    def _try_sp():
-        nonlocal dl_url,dl_fname,source,res_info
-        try:
-            rid=spiget_rid or spiget_search(name)
-            if not rid: log_cb("  Spiget: 見つからず","warn"); return
-            latest=spiget_get_latest(rid)
-            ver_name=latest.get("name","") if latest else ""
-            sp_ver_id=latest.get("id") if latest else None
-            if ver_id: sp_ver_id=ver_id
-            dl_url=spiget_download_url(rid,sp_ver_id)
-            res_name=name
-            dl_fname=f"{res_name}-{ver_name}.jar".replace(" ","_")
-            source="Spiget"
-            res_info={"type":"spiget","id":rid,"ver_id":sp_ver_id}
-            log_cb(f"  ✓ Spiget: {res_name} v{ver_name}","ok")
-        except Exception as e: log_cb(f"  Spiget エラー: {e}","err")
-
-    if sp_first:
-        if do_sp: _try_sp()
-        if do_mr and not dl_url: _try_mr()
-    else:
-        if do_mr: _try_mr()
-        if do_sp and not dl_url: _try_sp()
-    return dl_url,dl_fname,source,res_info
+def find_plugin(name,log_cb,ver_id=None):
+    try:
+        pid=mr_search_plugin(name)
+        if not pid: log_cb("  Modrinth: 見つからず","warn"); return None,None,None
+        if ver_id:
+            v_data=http_get(f"{MODRINTH_API}/version/{ver_id}")
+            vs=[v_data]
+        else:
+            vs=mr_get_plugin_versions(pid)
+        if not vs: log_cb("  Modrinth: 対応バージョンなし","warn"); return None,None,None
+        dl_url,dl_fname=mr_best_file(vs[0])
+        log_cb(f"  ✓ Modrinth: {dl_fname}","ok")
+        return dl_url,dl_fname,pid
+    except Exception as e: log_cb(f"  Modrinth エラー: {e}","err"); return None,None,None
 
 # ══════════════════════════════════════════════════════════════
 class PluginUpdaterApp(ttk.Frame):
@@ -268,17 +126,14 @@ class PluginUpdaterApp(ttk.Frame):
         self._running=False; self._cancel_flag=False
         _apply_theme_globals(theme)
         cfg=load_config()
-        self.plugins_dir   =tk.StringVar(value=cfg.get("plugins_dir",""))
-        self.dl_mode       =tk.StringVar(value=cfg.get("dl_mode",DL_BOTH_MR))
-        self.delete_old    =tk.BooleanVar(value=cfg.get("delete_old",False))
-        self.delete_failed =tk.BooleanVar(value=cfg.get("delete_failed",False))
-        self.auto_deps     =tk.BooleanVar(value=cfg.get("auto_deps",True))
-        self.plugin_list   =[]
-        self._ver_overrides={}
-        self._current_iid  =None
+        self.plugins_dir  =tk.StringVar(value=cfg.get("plugins_dir",""))
+        self.delete_old   =tk.BooleanVar(value=cfg.get("plugin_delete_old",False))
+        self.delete_failed=tk.BooleanVar(value=cfg.get("plugin_delete_failed",False))
+        self.auto_deps    =tk.BooleanVar(value=cfg.get("plugin_auto_deps",True))
+        self.plugin_list  =[]
+        self._ver_overrides={}   # filename -> {"id":ver_id} or None
+        self._current_iid =None
         self._versions_cache=[]
-        self._spiget_rid_cache={}  # filename -> spiget resource id
-        self._settings_scroll_init=False
         self._build()
 
     def _build(self):
@@ -297,67 +152,55 @@ class PluginUpdaterApp(ttk.Frame):
         self._cancel_btn=ttk.Button(bar,text="⏹ 中止",command=self._cancel,state="disabled")
         self._cancel_btn.pack(side="left",padx=(6,0))
 
+    # ── 設定タブ（mod_updaterと同じCanvas構成） ───────────────
     def _build_settings(self,p):
         t=THEMES[self._theme]
-        canvas=tk.Canvas(p,bg=t["BG"],highlightthickness=0)
-        vsb=ttk.Scrollbar(p,orient="vertical",command=canvas.yview)
-        canvas.configure(yscrollcommand=vsb.set)
-        vsb.pack(side="right",fill="y"); canvas.pack(side="left",fill="both",expand=True)
-        self._settings_canvas=canvas
-        f=ttk.Frame(canvas)
-        wid=canvas.create_window((0,0),window=f,anchor="nw")
-        def _update_scroll(e=None):
-            canvas.configure(scrollregion=canvas.bbox("all"))
-            if not self._settings_scroll_init:
-                canvas.yview_moveto(0); self._settings_scroll_init=True
-        f.bind("<Configure>",lambda e: self.after(10,_update_scroll))
-        canvas.bind("<Configure>",lambda e: canvas.itemconfig(wid,width=e.width))
-        def _wheel(e):
-            if isinstance(e.widget,ttk.Combobox): return
-            try:
-                if e.widget.winfo_toplevel()!=self.winfo_toplevel(): return
-            except Exception: return
-            canvas.yview_scroll(int(-1*(e.delta/120)),"units")
-        canvas.bind_all("<MouseWheel>",_wheel)
-        PAD=dict(padx=12,pady=(0,8))
+        # 設定タブはスクロール不要のためFrameを使用
+        outer=ttk.Frame(p); outer.pack(fill="both",expand=True)
+        self._settings_canvas=None  # apply_themeとの互換用
+        f=ttk.Frame(outer); f.pack(fill="both",expand=True,padx=2,pady=2)
+        PAD=dict(padx=14,pady=(0,8))
 
-        lf0=ttk.LabelFrame(f,text="🔌  Pluginsフォルダ"); lf0.pack(fill="x",padx=12,pady=(8,8))
+        # Pluginsフォルダ
+        lf0=ttk.LabelFrame(f,text="🔌  Pluginsフォルダ"); lf0.pack(fill="x",padx=14,pady=(8,8))
         r0=ttk.Frame(lf0); r0.pack(fill="x",padx=10,pady=8)
         ttk.Entry(r0,textvariable=self.plugins_dir).pack(side="left",fill="x",expand=True,padx=(0,6))
-        ttk.Button(r0,text="参照",command=lambda:self._browse(self.plugins_dir)).pack(side="left",padx=(0,6))
-        ttk.Button(r0,text="📂 読み込む",command=self._load_plugins).pack(side="left",padx=(0,6))
+        ttk.Button(r0,text="参照",         command=lambda:self._browse(self.plugins_dir)).pack(side="left",padx=(0,6))
+        ttk.Button(r0,text="📂 読み込む",  command=self._load_plugins).pack(side="left",padx=(0,6))
         ttk.Button(r0,text="⬇ ダウンロード",command=self._start_update).pack(side="left",padx=(0,6))
-        ttk.Button(r0,text="✕",command=lambda:self.plugins_dir.set(""),width=3).pack(side="left")
+        ttk.Button(r0,text="✕",           command=lambda:self.plugins_dir.set(""),width=3).pack(side="left")
 
+        # ダウンロード設定（Modrinth固定）
         lf3=ttk.LabelFrame(f,text="🌐  ダウンロード設定"); lf3.pack(fill="x",**PAD)
-        r3=ttk.Frame(lf3); r3.pack(fill="x",padx=10,pady=(8,4))
-        ttk.Label(r3,text="モード:").pack(side="left")
-        self._dl_cb=ttk.Combobox(r3,textvariable=self.dl_mode,values=DL_MODES,width=24,state="readonly")
-        self._dl_cb.pack(side="left",padx=(4,0))
-        self._dl_cb.bind("<<ComboboxSelected>>",lambda _:self._update_mode_ui())
-        self._mode_desc=ttk.Label(lf3,text="",foreground=t["YEL"],background=t["BG"],font=("Yu Gothic UI",9))
-        self._mode_desc.pack(anchor="w",padx=10,pady=(0,8))
-        self._update_mode_ui()
+        self._dl_info_label=tk.Label(lf3,text="  ℹ Modrinthを使用してダウンロードします",
+                   fg=t["YEL"],bg=t["BG"],
+                   font=("Yu Gothic UI",9))
+        self._dl_info_label.pack(anchor="w",padx=10,pady=8)
 
+        # オプション
         lf4=ttk.LabelFrame(f,text="⚙  オプション"); lf4.pack(fill="x",**PAD)
         for txt,var in [
-            ("アップデート後に古いファイルを削除する",self.delete_old),
-            ("ダウンロード失敗したファイルを削除する（壊れたファイル除去）",self.delete_failed),
-            ("前提プラグインが足りなければ自動でダウンロードする",self.auto_deps),
+            ("アップデート後に古いファイルを削除する",                    self.delete_old),
+            ("ダウンロード失敗したファイルを削除する（壊れたファイル除去）", self.delete_failed),
+            ("前提プラグインが足りなければ自動でダウンロードする",          self.auto_deps),
         ]:
             ttk.Checkbutton(lf4,text=txt,variable=var).pack(padx=10,pady=2,anchor="w")
 
-        # 注意書き
+        # 注意
         lf5=ttk.LabelFrame(f,text="⚠  注意"); lf5.pack(fill="x",**PAD)
-        msg=("このツールはプラグインのバージョンを選択または最新版にアップデートする機能を提供しますが、"
-             "お使いのMinecraftサーバーのバージョンで正常に動作するとは限りません。"
+        msg=("このツールはModrinthを使用してプラグインをダウンロードします。\n"
+             "プラグインのダウンロード・アップデートはできますが、"
+             "お使いのMinecraftサーバーのバージョンやPlugin Loader（Spigot / Paper / Purpur / Velocity等）"
+             "で正常に動作するとは限りません。\n"
              "アップデート前に必ずバックアップを取り、自己責任でご使用ください。")
-        ttk.Label(lf5,text=msg,wraplength=580,justify="left",
-                   foreground=t["RED"],background=t["BG"],
-                   font=("Yu Gothic UI",9)).pack(padx=10,pady=8,anchor="w")
+        self._warn_label=tk.Label(lf5,text=msg,wraplength=560,justify="left",
+                   fg=t["RED"],bg=t["BG"],
+                   font=("Yu Gothic UI",9))
+        self._warn_label.pack(padx=10,pady=8,anchor="w")
 
         ttk.Frame(f,height=10).pack()
 
+    # ── プラグイン一覧タブ ────────────────────────────────────
     def _build_list(self,p):
         top=ttk.Frame(p); top.pack(fill="x",padx=6,pady=(6,2))
         for text,w,cmd in [("全選択",6,lambda:self._sel_all(True)),("全解除",6,lambda:self._sel_all(False))]:
@@ -387,7 +230,9 @@ class PluginUpdaterApp(ttk.Frame):
         self._side=ttk.LabelFrame(body,text="  📋 詳細  ")
         self._side.pack(side="left",fill="y",padx=(4,4),pady=(0,4))
         self._side.configure(width=220); self._side.pack_propagate(False)
-        sc=tk.Canvas(self._side,highlightthickness=0); sv=ttk.Scrollbar(self._side,orient="vertical",command=sc.yview)
+        t_now=THEMES[self._theme]
+        sc=tk.Canvas(self._side,highlightthickness=0,bg=t_now["BG"])
+        sv=ttk.Scrollbar(self._side,orient="vertical",command=sc.yview)
         sc.configure(yscrollcommand=sv.set); sv.pack(side="right",fill="y"); sc.pack(side="left",fill="both",expand=True)
         sf=ttk.Frame(sc); sw=sc.create_window((0,0),window=sf,anchor="nw")
         sf.bind("<Configure>",lambda e:sc.configure(scrollregion=sc.bbox("all")))
@@ -408,31 +253,32 @@ class PluginUpdaterApp(ttk.Frame):
         self._ver_status_side.pack(anchor="w",padx=8,pady=(0,4))
         ttk.Button(sf,text="🔄 バージョン取得",command=self._fetch_versions_side).pack(padx=8,pady=(0,8),fill="x")
 
+    # ── ログタブ ──────────────────────────────────────────────
     def _build_log(self,p):
         t=THEMES[self._theme]
         self._log_box=scrolledtext.ScrolledText(p,bg=t["LOG"],fg=t["FG"],
             selectbackground=t["SEL"],selectforeground=t["SEL_FG"],
             insertbackground=t["FG"],font=("Consolas",9),relief="flat",wrap="word")
+        # ScrolledText内部フレームの背景も合わせる
+        try: self._log_box.frame.configure(background=t["LOG"])
+        except Exception: pass
         self._log_box.pack(fill="both",expand=True,padx=8,pady=8)
         for tag,color in [("ok",t["GRN"]),("err",t["RED"]),("info",t["ACC"]),("warn",t["YEL"])]:
             self._log_box.tag_config(tag,foreground=color)
         ttk.Button(p,text="クリア",command=lambda:self._log_box.delete("1.0","end")).pack(pady=(0,8))
 
+    # ── ヘルパー ──────────────────────────────────────────────
     def _log(self,msg,tag=""):
         def _do(): self._log_box.insert("end",msg+"\n",tag); self._log_box.see("end")
         self.after(0,_do)
+
     def _set_status(self,msg): self.after(0,lambda:self._prog_label.config(text=msg))
+
     def _set_progress(self,v,maximum=None):
         def _do():
             if maximum is not None: self._progress.configure(maximum=maximum)
             self._progress.configure(value=v)
         self.after(0,_do)
-
-    def _update_mode_ui(self):
-        mode=self.dl_mode.get()
-        desc={DL_BOTH_MR:"Modrinthで検索 → なければSpigetも",DL_BOTH_SP:"Spigetで検索 → なければModrinthも",
-              DL_MR:"Modrinthのみ",DL_SP:"Spigetのみ"}.get(mode,"")
-        self._mode_desc.config(text=f"  ℹ {desc}")
 
     def _browse(self,var):
         d=filedialog.askdirectory()
@@ -458,9 +304,18 @@ class PluginUpdaterApp(ttk.Frame):
         item=next((it for it in self.plugin_list if it["filename"]==row),None)
         if not item: return
         self._side_name.config(text=item.get("name",row))
-        self._ver_combo["values"]=["最新"]
-        self._ver_var.set("最新")
-        self._ver_status_side.config(text="← バージョン取得ボタンで一覧を取得")
+        # 既存のoverride設定を復元
+        override=self._ver_overrides.get(row)
+        if override:
+            # キャッシュがあればラベルを復元、なければIDを表示
+            cached_label=override.get("label","最新")
+            self._ver_combo["values"]=["最新",cached_label] if cached_label!="最新" else ["最新"]
+            self._ver_var.set(cached_label)
+            self._ver_status_side.config(text=f"✅ {cached_label} を選択中",foreground=GRN)
+        else:
+            self._ver_combo["values"]=["最新"]
+            self._ver_var.set("最新")
+            self._ver_status_side.config(text="← バージョン取得ボタンで一覧を取得")
         self._versions_cache=[]
 
     def _fetch_versions_side(self):
@@ -469,28 +324,15 @@ class PluginUpdaterApp(ttk.Frame):
         if not item: return
         self._ver_status_side.config(text="🔄 取得中...",foreground=YEL)
         self._ver_combo.config(state="disabled")
-        mode=self.dl_mode.get()
 
         def _fetch():
             results=[]
-            # Modrinthバージョン取得
             try:
-                if mode in (DL_BOTH_MR,DL_BOTH_SP,DL_MR):
-                    pid=mr_search_plugin(item.get("name",""))
-                    if pid:
-                        vs=mr_get_plugin_versions(pid)
-                        for v in vs:
-                            results.append({"label":f"[MR] {v.get('version_number','?')}","id":v["id"],"source":"modrinth"})
-            except Exception: pass
-            # Spigetバージョン取得
-            try:
-                if mode in (DL_BOTH_MR,DL_BOTH_SP,DL_SP):
-                    rid=self._spiget_rid_cache.get(item["filename"]) or spiget_search(item.get("name",""))
-                    if rid:
-                        self._spiget_rid_cache[item["filename"]]=rid
-                        versions=spiget_get_versions(rid)
-                        for v in versions:
-                            results.append({"label":f"[SP] {v.get('name','?')}","id":v.get("id"),"source":"spiget"})
+                pid=mr_search_plugin(item.get("name",""))
+                if pid:
+                    vs=mr_get_plugin_versions(pid)
+                    for v in vs:
+                        results.append({"label":f"{v.get('version_number','?')}","id":v["id"]})
             except Exception: pass
             self.after(0,lambda r=results:self._update_ver_combo(r))
 
@@ -500,7 +342,12 @@ class PluginUpdaterApp(ttk.Frame):
         self._versions_cache=results
         labels=["最新"]+[r["label"] for r in results]
         self._ver_combo["values"]=labels; self._ver_combo.config(state="readonly")
-        self._ver_var.set("最新")
+        # 既存のoverride設定を反映
+        override=self._ver_overrides.get(self._current_iid)
+        if override:
+            self._ver_var.set(override.get("label","最新"))
+        else:
+            self._ver_var.set("最新")
         self._ver_status_side.config(
             text=f"✅ {len(results)} 件取得" if results else "⚠ バージョンなし",
             foreground=GRN if results else RED)
@@ -508,12 +355,14 @@ class PluginUpdaterApp(ttk.Frame):
     def _on_ver_select(self,e=None):
         if not self._current_iid: return
         label=self._ver_var.get()
-        if label=="最新": self._ver_overrides.pop(self._current_iid,None)
+        if label=="最新":
+            self._ver_overrides.pop(self._current_iid,None)
+            self._ver_status_side.config(text="✅ 最新でDL",foreground=GRN)
         else:
             ver=next((v for v in self._versions_cache if v["label"]==label),None)
-            self._ver_overrides[self._current_iid]=ver
-        self._ver_status_side.config(
-            text="✅ 最新でDL" if label=="最新" else f"✅ {label} を選択",foreground=GRN)
+            if ver:
+                self._ver_overrides[self._current_iid]={"id":ver["id"],"label":label}
+            self._ver_status_side.config(text=f"✅ {label} を選択",foreground=GRN)
 
     def _sel_all(self,v):
         mark="☑" if v else "☐"
@@ -565,33 +414,27 @@ class PluginUpdaterApp(ttk.Frame):
         self._running=True; self._cancel_flag=False
         self._set_progress(0,len(selected)); self._nb.select(2)
         self.after(0,lambda:self._cancel_btn.config(state="normal"))
-        threading.Thread(target=self._worker,args=(selected,self.dl_mode.get()),daemon=True).start()
+        threading.Thread(target=self._worker,args=(selected,),daemon=True).start()
 
-    def _worker(self,plugins,mode):
+    def _worker(self,plugins):
         delete_old=self.delete_old.get(); delete_fail=self.delete_failed.get()
         auto_deps=self.auto_deps.get(); out_dir=self.plugins_dir.get()
         done_deps=set(); ok_list=[]; fail_list=[]
+
         for i,plugin in enumerate(plugins):
             if self._cancel_flag: self._log("\n⏹ 中止されました","warn"); break
             name=plugin.get("name",plugin["filename"])
             override=self._ver_overrides.get(plugin["filename"])
+            ver_id=override["id"] if override else None
             self._set_status(f"{i+1}/{len(plugins)}: {name[:24]}")
             self._log(f"\n── {name} ──","info")
             def _log(msg,tag=""): self._log(msg,tag)
-            # バージョン指定の解決
-            mr_ver_id=None; sp_ver_id=None; sp_rid=self._spiget_rid_cache.get(plugin["filename"])
-            if override:
-                src=override.get("source","")
-                if src=="modrinth": mr_ver_id=override["id"]
-                elif src=="spiget": sp_ver_id=override["id"]
-            dl_url,dl_fname,source,res_info=find_plugin(name,mode,_log,mr_ver_id,sp_rid)
-            # Spigetの場合はver_id上書き
-            if override and override.get("source")=="spiget" and res_info and res_info.get("type")=="spiget":
-                rid=res_info["id"]
-                dl_url=spiget_download_url(rid,sp_ver_id)
+
+            dl_url,dl_fname,pid=find_plugin(name,_log,ver_id)
+
             if dl_url and dl_fname:
                 dest=os.path.join(out_dir,dl_fname)
-                if self._do_download(dl_url,dest,name,source,plugin.get("path"),delete_old,delete_fail):
+                if self._do_download(dl_url,dest,name,plugin.get("path"),delete_old,delete_fail):
                     ok_list.append(name)
                     if auto_deps:
                         for dep_name in plugin.get("depend",[]):
@@ -600,9 +443,9 @@ class PluginUpdaterApp(ttk.Frame):
                             if any(p.get("name","").lower()==dep_name.lower() for p in self.plugin_list):
                                 self._log(f"  🔗 前提プラグイン既存: {dep_name}","ok"); continue
                             self._log(f"  🔗 前提プラグイン DL: {dep_name}","info")
-                            du,df,src,_=find_plugin(dep_name,mode,_log)
+                            du,df,_=find_plugin(dep_name,_log)
                             if du and df and not os.path.exists(os.path.join(out_dir,df)):
-                                self._do_download(du,os.path.join(out_dir,df),dep_name,src,None,False,delete_fail)
+                                self._do_download(du,os.path.join(out_dir,df),dep_name,None,False,delete_fail)
                                 ok_list.append(f"[前提] {dep_name}")
                 else: fail_list.append(name)
             else:
@@ -612,6 +455,7 @@ class PluginUpdaterApp(ttk.Frame):
                     try: os.remove(plugin["path"]); self._log("  🗑 失敗ファイル削除","warn")
                     except Exception: pass
             self._set_progress(i+1)
+
         self._log(f"\n{'═'*40}","info")
         self._log(f"✅ 成功: {len(ok_list)} 件","ok")
         for n in ok_list: self._log(f"   ✓ {n}","ok")
@@ -625,10 +469,10 @@ class PluginUpdaterApp(ttk.Frame):
         if fail_list: msg+="\n\n失敗:\n"+"\n".join(f"  • {n}" for n in fail_list)
         self.after(0,lambda:messagebox.showinfo("完了",msg))
 
-    def _do_download(self,url,dest,name,source,old_path,delete_old,delete_fail):
+    def _do_download(self,url,dest,name,old_path,delete_old,delete_fail):
         try:
-            self._log(f"  ⬇ DL中 [{source}]: {os.path.basename(dest)}")
-            download_file(url,dest,lambda p:self._set_status(f"DL: {name[:18]} {p*100:.0f}%"),self._log)
+            self._log(f"  ⬇ DL中 [Modrinth]: {os.path.basename(dest)}")
+            download_file(url,dest,lambda p:self._set_status(f"DL: {name[:18]} {p*100:.0f}%"))
             if delete_old and old_path and os.path.exists(old_path):
                 if os.path.abspath(dest)!=os.path.abspath(old_path):
                     os.remove(old_path); self._log(f"  🗑 旧ファイル削除: {os.path.basename(old_path)}","warn")
@@ -645,19 +489,25 @@ class PluginUpdaterApp(ttk.Frame):
 
     def apply_theme(self,theme):
         self._theme=theme; t=THEMES[theme]
-        self._settings_canvas.config(bg=t["BG"])
+        if self._settings_canvas:
+            self._settings_canvas.config(bg=t["BG"])
         self._log_box.config(bg=t["LOG"],fg=t["FG"],selectbackground=t["SEL"],
                               selectforeground=t["SEL_FG"],insertbackground=t["FG"])
+        try: self._log_box.frame.configure(background=t["LOG"])
+        except Exception: pass
         for tag,color in [("ok",t["GRN"]),("err",t["RED"]),("info",t["ACC"]),("warn",t["YEL"])]:
             self._log_box.tag_config(tag,foreground=color)
         self._tree.configure(background=t["BG2"],foreground=t["FG"],fieldbackground=t["BG2"])
-        self._mode_desc.config(foreground=t["YEL"],background=t["BG"])
+        self._side_canvas.configure(bg=t["BG"])
+        if hasattr(self,"_dl_info_label"): self._dl_info_label.config(bg=t["BG"],fg=t["YEL"])
+        if hasattr(self,"_warn_label"):    self._warn_label.config(bg=t["BG"],fg=t["RED"])
 
     def save_config(self):
         cfg=load_config()
-        cfg.update({"plugins_dir":self.plugins_dir.get(),"dl_mode":self.dl_mode.get(),
-                     "delete_old":self.delete_old.get(),"delete_failed":self.delete_failed.get(),
-                     "auto_deps":self.auto_deps.get()})
+        cfg.update({"plugins_dir":self.plugins_dir.get(),
+                     "plugin_delete_old":self.delete_old.get(),
+                     "plugin_delete_failed":self.delete_failed.get(),
+                     "plugin_auto_deps":self.auto_deps.get()})
         save_config(cfg)
 
 # ── スタンドアロン ────────────────────────────────────────────
@@ -712,7 +562,8 @@ class StandaloneApp(tk.Tk):
         ttk.Label(hdr,text="🔌  MC Plugin Updater",style="Hdr.TLabel").grid(row=0,column=1)
         self._theme_btn=ttk.Button(hdr,text=t["ICON"],command=self._toggle_theme,width=3)
         self._theme_btn.grid(row=0,column=2,sticky="e")
-        ttk.Label(self,text="Spigot / Paper / Bukkit プラグインを一括アップデート",style="Sub.TLabel").pack(pady=(2,8))
+        ttk.Label(self,text="Spigot / Paper / Bukkit プラグインを一括アップデート（Modrinth使用）",
+                   style="Sub.TLabel").pack(pady=(2,8))
         self._plugin_app=PluginUpdaterApp(self,theme=self._theme,icon_path=self._icon_path)
         self._plugin_app.pack(fill="both",expand=True,padx=12,pady=(0,4))
         self._plugin_app._disable_combobox_wheel()

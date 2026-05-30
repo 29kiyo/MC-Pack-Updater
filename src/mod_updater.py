@@ -318,7 +318,8 @@ class FileListPanel(ttk.Frame):
         self._side.configure(width=220)
         self._side.pack_propagate(False)
 
-        side_canvas = tk.Canvas(self._side, highlightthickness=0)
+        t = THEMES[_current_theme()]
+        side_canvas = tk.Canvas(self._side, highlightthickness=0, bg=t["BG"])
         side_vsb    = ttk.Scrollbar(self._side, orient="vertical", command=side_canvas.yview)
         side_canvas.configure(yscrollcommand=side_vsb.set)
         side_vsb.pack(side="right", fill="y")
@@ -661,22 +662,13 @@ class App(tk.Tk):
 
     def _build_settings(self, p):
         t = THEMES[self._theme]
-        self._settings_canvas = tk.Canvas(p, bg=t["BG"], highlightthickness=0)
-        canvas = self._settings_canvas
-        vsb    = ttk.Scrollbar(p, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=vsb.set)
-        vsb.pack(side="right", fill="y"); canvas.pack(side="left", fill="both", expand=True)
-        f = ttk.Frame(canvas)
-        wid = canvas.create_window((0,0), window=f, anchor="nw")
-        f.bind("<Configure>",      lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfig(wid, width=e.width))
-        def _wheel(e):
-            if isinstance(e.widget, ttk.Combobox): return
-            try:
-                if e.widget.winfo_toplevel() != self: return
-            except Exception: return
-            canvas.yview_scroll(int(-1*(e.delta/120)), "units")
-        canvas.bind_all("<MouseWheel>", _wheel)
+        # 設定タブはスクロール不要のためFrameを使用
+        outer = ttk.Frame(p)
+        outer.pack(fill="both", expand=True)
+        self._settings_canvas = None  # _toggle_themeとの互換用
+        f = ttk.Frame(outer)
+        f.pack(fill="both", expand=True, padx=2, pady=2)
+        # マウスホイールはModタブ（一覧）でのみ有効にする
         PAD = dict(padx=14, pady=(0,8))
 
         # 起動構成
@@ -875,17 +867,21 @@ class App(tk.Tk):
             box.config(bg=t["LOG"], fg=t["FG"],
                        selectbackground=t["SEL"], selectforeground=t["SEL_FG"],
                        insertbackground=t["FG"])
+            try: box.frame.configure(background=t["LOG"])
+            except Exception: pass
             for tag, color in [("ok",t["GRN"]),("err",t["RED"]),("info",t["ACC"]),("warn",t["YEL"])]:
                 box.tag_config(tag, foreground=color)
         # ラベルの色を更新
         self._mode_desc.config(foreground=t["YEL"], background=t["BG"])
         self._ver_status.config(background=t["BG"])
         self._profile_note.config(foreground=t["YEL"], background=t["BG"])
-        self._settings_canvas.config(bg=t["BG"])
-        # Treeviewの色を更新（単色なのでconfigureだけでOK）
+        if self._settings_canvas:
+            self._settings_canvas.config(bg=t["BG"])
+        # Treeview・サイドパネルキャンバスの色を更新
         for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
             panel._tree.configure(background=t["BG2"], foreground=t["FG"],
                                    fieldbackground=t["BG2"])
+            panel._side_canvas.configure(bg=t["BG"])
         # プラグインタブにも適用
         if hasattr(self, "_plugin_app") and self._plugin_app:
             self._plugin_app.apply_theme(self._theme)
