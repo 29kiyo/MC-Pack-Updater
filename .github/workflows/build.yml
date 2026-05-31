@@ -74,12 +74,14 @@ jobs:
         with:
           name: MC-Pack-Updater-zip
           path: dist\MC-Pack-Updater.zip
+          retention-days: 7
 
       - name: Upload artifact (exe)
         uses: actions/upload-artifact@v6
         with:
           name: MC-Pack-Updater-exe
           path: dist\MC-Pack-Updater.exe
+          retention-days: 7
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
