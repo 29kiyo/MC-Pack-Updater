@@ -1,0 +1,16 @@
+name: Delete All Releases
+
+on:
+  workflow_dispatch: # ブラウザから手動で実行できるようにするボタン
+
+jobs:
+  delete-releases:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete older releases
+        uses: dev-drprasad/delete-older-releases@v0.3.4
+        with:
+          keep_latest: 0           # 0に指定することですべて削除
+          delete_tags: true        # Gitのタグも一緒に完全に消す場合はtrue、タグを残すならfalse
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
