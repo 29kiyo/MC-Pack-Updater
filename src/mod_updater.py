@@ -232,7 +232,7 @@ def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key, mr_type, cf_c
             if ver_override:
                 v_data = http_get(f"{MODRINTH_API}/version/{ver_override}")
                 vs = [v_data]
-                log_cb(f"  Modrinth: 指定バージョンを使用","info")
+                log_cb("  Modrinth: 指定バージョンを使用", "info")
             else:
                 vs = mr_get_versions(pid, mc_ver, loader, mr_type)
             if not vs: log_cb(f"  Modrinth: {mc_ver} 対応なし","warn"); return
@@ -319,39 +319,40 @@ class FileListPanel(ttk.Frame):
         self._side.pack_propagate(False)
 
         t = THEMES[_current_theme()]
-        side_canvas = tk.Canvas(self._side, highlightthickness=0, bg=t["BG"])
-        side_vsb    = ttk.Scrollbar(self._side, orient="vertical", command=side_canvas.yview)
-        side_canvas.configure(yscrollcommand=side_vsb.set)
-        side_vsb.pack(side="right", fill="y")
-        side_canvas.pack(side="left", fill="both", expand=True)
-        self._side_frame = ttk.Frame(side_canvas)
-        self._side_wid   = side_canvas.create_window((0,0), window=self._side_frame, anchor="nw")
-        self._side_frame.bind("<Configure>",
-            lambda e: side_canvas.configure(scrollregion=side_canvas.bbox("all")))
-        side_canvas.bind("<Configure>",
-            lambda e: side_canvas.itemconfig(self._side_wid, width=e.width))
-        side_canvas.bind("<MouseWheel>",
-            lambda e: side_canvas.yview_scroll(int(-1*(e.delta/120)),"units"))
-        self._side_canvas = side_canvas
+        # スクロールなしのシンプルなフレーム
+        sf = tk.Frame(self._side, bg=t["BG"])
+        sf.pack(fill="both", expand=True)
+        self._side_canvas = sf   # apply_theme から参照されるため sf を指す
+        self._side_frame  = sf
 
-        sf = self._side_frame
+        # 選択中ラベル（tk.Label で bg を直接管理）
+        lbl_sel = tk.Label(sf, text="選択中:", font=("Yu Gothic UI",8),
+                           bg=t["BG"], fg=t["FG"])
+        lbl_sel.pack(anchor="w", padx=8, pady=(8,0))
+        self._side_lbl_sel = lbl_sel
 
-        # Mod名
-        ttk.Label(sf, text="選択中:", font=("Yu Gothic UI",8)).pack(anchor="w", padx=8, pady=(8,0))
-        self._side_name = ttk.Label(sf, text="—", wraplength=195,
-                                     font=("Yu Gothic UI",9,"bold"))
+        self._side_name = tk.Label(sf, text="—", wraplength=195,
+                                    font=("Yu Gothic UI",9,"bold"),
+                                    bg=t["BG"], fg=t["FG"], justify="left")
         self._side_name.pack(anchor="w", padx=8, pady=(0,6))
 
-        ttk.Separator(sf, orient="horizontal").pack(fill="x", padx=8, pady=4)
+        # Separator を tk.Frame で代替（ttk.Separator は bg 制御が複雑）
+        self._side_sep = tk.Frame(sf, height=1, bg=t["BG3"])
+        self._side_sep.pack(fill="x", padx=8, pady=4)
 
         # バージョン
-        ttk.Label(sf, text="バージョン:").pack(anchor="w", padx=8, pady=(0,2))
+        lbl_ver = tk.Label(sf, text="バージョン:", font=("Yu Gothic UI",10),
+                           bg=t["BG"], fg=t["FG"])
+        lbl_ver.pack(anchor="w", padx=8, pady=(0,2))
+        self._side_lbl_ver = lbl_ver
+
         self._ver_var   = tk.StringVar(value="最新")
         self._ver_combo = ttk.Combobox(sf, textvariable=self._ver_var,
                                         state="readonly", width=24)
         self._ver_combo.pack(padx=8, pady=(0,2), fill="x")
         self._ver_combo.bind("<<ComboboxSelected>>", self._on_ver_select)
-        self._ver_status = ttk.Label(sf, text="", foreground=YEL, font=("Yu Gothic UI",8))
+        self._ver_status = tk.Label(sf, text="", fg=t["YEL"],
+                                     bg=t["BG"], font=("Yu Gothic UI",8))
         self._ver_status.pack(anchor="w", padx=8, pady=(0,4))
         ttk.Button(sf, text="🔄 バージョン取得",
                     command=self._fetch_versions).pack(padx=8, pady=(0,8), fill="x")
@@ -702,44 +703,69 @@ class App(tk.Tk):
         ttk.Button(all_row, text="📂 全て読み込む",        command=self._load_all).pack(side="left", padx=(0,8))
         ttk.Button(all_row, text="🔄 全て一括アップデート", command=self._start_all).pack(side="left")
 
-        # バージョン
-        lf2 = ttk.LabelFrame(f, text="🎯  アップデート先"); lf2.pack(fill="x", **PAD)
-        r2 = ttk.Frame(lf2); r2.pack(fill="x", padx=10, pady=8)
-        ttk.Label(r2, text="MCバージョン:").pack(side="left")
-        self._ver_cb = ttk.Combobox(r2, textvariable=self.target_version,
+        # アップデート先＋ダウンロード設定（横並び）
+        mid_row = ttk.Frame(f)
+        mid_row.pack(fill="x", **PAD)
+        mid_row.columnconfigure(0, weight=1)
+        mid_row.columnconfigure(1, weight=1)
+
+        # アップデート先（左）
+        lf2 = ttk.LabelFrame(mid_row, text="🎯  アップデート先")
+        lf2.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        r2a = ttk.Frame(lf2); r2a.pack(fill="x", padx=10, pady=(8, 2))
+        ttk.Label(r2a, text="MCバージョン:").pack(side="left")
+        self._ver_cb = ttk.Combobox(r2a, textvariable=self.target_version,
                                      values=MC_VERSIONS_FALLBACK, width=12, state="readonly")
-        self._ver_cb.pack(side="left", padx=(4,4))
-        self._ver_status = ttk.Label(r2, text="🔄 取得中...", foreground=YEL, background=BG, font=("Yu Gothic UI",8))
-        self._ver_status.pack(side="left", padx=(0,14))
-        ttk.Label(r2, text="Mod Loader:").pack(side="left")
-        self._loader_cb = ttk.Combobox(r2, textvariable=self.target_loader,
+        self._ver_cb.pack(side="left", padx=(4, 6))
+        self._ver_status = tk.Label(r2a, text="🔄 取得中...",
+                                     fg=t["YEL"], bg=t["BG"],
+                                     font=("Yu Gothic UI", 8), anchor="w")
+        self._ver_status.pack(side="left")
+        self._tk_widgets_settings = getattr(self, "_tk_widgets_settings", [])
+        self._tk_widgets_settings.append((self._ver_status, "YEL", "fg"))
+        self._tk_widgets_settings.append((self._ver_status, "BG",  "bg"))
+        r2b = ttk.Frame(lf2); r2b.pack(fill="x", padx=10, pady=(2, 8))
+        ttk.Label(r2b, text="Mod Loader:").pack(side="left")
+        self._loader_cb = ttk.Combobox(r2b, textvariable=self.target_loader,
                                         values=LOADERS, width=12, state="readonly")
-        self._loader_cb.pack(side="left", padx=(4,10))
+        self._loader_cb.pack(side="left", padx=(4, 6))
         self._loader_cb.bind("<<ComboboxSelected>>", lambda _: self._filter_versions())
-        ttk.Button(r2, text="✕ リセット",
+        ttk.Button(r2b, text="✕ リセット",
                     command=lambda: (self.target_version.set(""), self.target_loader.set(""))).pack(side="left")
 
-        # DL設定
-        lf3 = ttk.LabelFrame(f, text="🌐  ダウンロード設定"); lf3.pack(fill="x", **PAD)
-        r3 = ttk.Frame(lf3); r3.pack(fill="x", padx=10, pady=(8,4))
+        # ダウンロード設定（右）
+        lf3 = ttk.LabelFrame(mid_row, text="🌐  ダウンロード設定")
+        lf3.grid(row=0, column=1, sticky="nsew")
+        r3 = ttk.Frame(lf3); r3.pack(fill="x", padx=10, pady=(8, 2))
         ttk.Label(r3, text="モード:").pack(side="left")
-        self._dl_mode_cb = ttk.Combobox(r3, textvariable=self.dl_mode, values=DL_MODES, width=24, state="readonly")
-        self._dl_mode_cb.pack(side="left", padx=(4,0))
+        self._dl_mode_cb = ttk.Combobox(r3, textvariable=self.dl_mode, values=DL_MODES, width=20, state="readonly")
+        self._dl_mode_cb.pack(side="left", padx=(4, 0))
         self._dl_mode_cb.bind("<<ComboboxSelected>>", lambda _: self._update_mode_ui())
-        self._mode_desc = ttk.Label(lf3, text="", foreground=YEL, background=BG, font=("Yu Gothic UI",9))
-        self._mode_desc.pack(anchor="w", padx=10, pady=(0,4))
-        ttk.Separator(lf3, orient="horizontal").pack(fill="x", padx=10, pady=4)
-        r4 = ttk.Frame(lf3); r4.pack(fill="x", padx=10, pady=(2,8))
+        self._mode_desc = tk.Label(lf3, text="",
+                                    fg=t["YEL"], bg=t["BG"],
+                                    font=("Yu Gothic UI", 9),
+                                    wraplength=260, justify="left", anchor="w")
+        self._mode_desc.pack(anchor="w", padx=10, pady=(2, 4))
+        self._tk_widgets_settings.append((self._mode_desc, "YEL", "fg"))
+        self._tk_widgets_settings.append((self._mode_desc, "BG",  "bg"))
+        ttk.Separator(lf3, orient="horizontal").pack(fill="x", padx=10, pady=2)
+        r4 = ttk.Frame(lf3); r4.pack(fill="x", padx=10, pady=(4, 4))
         ttk.Label(r4, text="CurseForge APIキー:").pack(side="left")
-        self._cf_entry = ttk.Entry(r4, textvariable=self.cf_api_key, show="*", width=38)
-        self._cf_entry.pack(side="left", padx=(6,6))
-        self._cf_show_btn = ttk.Button(r4, text="表示", command=self._toggle_cf_show, width=5)
-        self._cf_show_btn.pack(side="left", padx=(0,6))
+        self._cf_entry = ttk.Entry(r4, textvariable=self.cf_api_key, show="*", width=24)
+        self._cf_entry.pack(side="left", padx=(6, 4))
+        self._cf_show_btn = ttk.Button(r4, text="表示", command=self._toggle_cf_show, width=4)
+        self._cf_show_btn.pack(side="left", padx=(0, 4))
         ttk.Button(r4, text="取得方法 ↗", command=self._show_api_guide).pack(side="left")
         self._update_mode_ui()
 
-        # オプション
-        lf4 = ttk.LabelFrame(f, text="⚙  オプション"); lf4.pack(fill="x", **PAD)
+        # オプション＋注意（横並び）
+        bottom_row = ttk.Frame(f)
+        bottom_row.pack(fill="x", **PAD)
+        bottom_row.columnconfigure(0, weight=1)
+        bottom_row.columnconfigure(1, weight=1)
+
+        lf4 = ttk.LabelFrame(bottom_row, text="⚙  オプション")
+        lf4.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         for txt, var in [
             ("アップデート後に古いファイルを削除する",                    self.delete_old),
             ("ダウンロード失敗したファイルを削除する（壊れたファイル除去）", self.delete_failed),
@@ -748,25 +774,63 @@ class App(tk.Tk):
         ]:
             ttk.Checkbutton(lf4, text=txt, variable=var).pack(padx=10, pady=2, anchor="w")
 
+        lf5 = ttk.LabelFrame(bottom_row, text="⚠  注意")
+        lf5.grid(row=0, column=1, sticky="nsew")
+        warn_msg = (
+            "起動構成フォルダを直接読み込んで使用できますが、"
+            "検出された構成がそのまま正常に動作するとは限りません。\n\n"
+            "Modのバージョン・ローダーの種類・依存関係によっては"
+            "アップデート後に起動しなくなる場合があります。\n\n"
+            "実行前に必ずバックアップを取り、自己責任でご使用ください。"
+        )
+        self._settings_warn_label = tk.Label(
+            lf5, text=warn_msg,
+            justify="left", anchor="nw",
+            fg=t["RED"], bg=t["BG"],
+            font=("Yu Gothic UI", 9),
+        )
+        self._settings_warn_label.pack(padx=10, pady=8, anchor="nw", fill="x", expand=True)
+        # 枠幅が変わったら wraplength を自動追従
+        def _update_warn_wrap(e, lbl=self._settings_warn_label):
+            lbl.configure(wraplength=max(100, e.width - 20))
+        lf5.bind("<Configure>", _update_warn_wrap)
+
         ttk.Frame(f, height=10).pack()
 
     def _build_lists(self, p):
         inner_nb = ttk.Notebook(p)
         inner_nb.pack(fill="both", expand=True)
+        self._inner_nb = inner_nb
 
-        for attr, mr_type, lbl, load_fn, upd_fn in [
-            ("_mod_panel",    MR_MOD,   "🧩 Mod",          self._load_mods,   lambda: self._start_panel(self._mod_panel,   "Mod")),
-            ("_rp_panel",     MR_RP,    "🎨 ResourcePack",  self._load_rp,     lambda: self._start_panel(self._rp_panel,    "ResourcePack")),
-            ("_shader_panel", MR_SHADE, "✨ Shader",         self._load_shader, lambda: self._start_panel(self._shader_panel,"Shader")),
+        for attr, mr_type, lbl, log_key, load_fn, upd_fn in [
+            ("_mod_panel",    MR_MOD,   "🧩 Mod",         "mod",    self._load_mods,   lambda: self._start_panel(self._mod_panel,   "Mod")),
+            ("_rp_panel",     MR_RP,    "🎨 ResourcePack", "rp",     self._load_rp,     lambda: self._start_panel(self._rp_panel,    "ResourcePack")),
+            ("_shader_panel", MR_SHADE, "✨ Shader",        "shader", self._load_shader, lambda: self._start_panel(self._shader_panel,"Shader")),
         ]:
             tab = ttk.Frame(inner_nb)
             inner_nb.add(tab, text=f" {lbl} ")
+
             panel = FileListPanel(tab, mr_type,
                                    load_fn=load_fn,
                                    update_fn=upd_fn,
                                    ver_fetch_fn=self._make_ver_fetch_fn(mr_type))
             panel.pack(fill="both", expand=True)
             setattr(self, attr, panel)
+
+            # ── プログレスバー＋中止ボタン ─────────────────────────────
+            bar = ttk.Frame(tab)
+            bar.pack(fill="x", padx=4, pady=(0, 4))
+            prog = ttk.Progressbar(bar, mode="determinate")
+            prog.pack(side="left", fill="x", expand=True, padx=(0, 6))
+            prog_lbl = ttk.Label(bar, text="", width=28)
+            prog_lbl.pack(side="left")
+            cancel_btn = ttk.Button(bar, text="⏹ 中止", command=self._cancel, state="disabled", width=7)
+            cancel_btn.pack(side="left", padx=(4, 0))
+
+            # パネルごとの進捗ウィジェットを panel に持たせる
+            panel._mini_progress   = prog
+            panel._mini_prog_label = prog_lbl
+            panel._mini_cancel_btn = cancel_btn
 
     def _make_ver_fetch_fn(self, mr_type):
         """バージョン取得関数を生成して返す"""
@@ -790,7 +854,7 @@ class App(tk.Tk):
                 result = [{"label": f"{v.get('version_number','?')}  [{v.get('game_versions',['?'])[-1]}]",
                            "id": v["id"]} for v in versions]
                 self.after(0, lambda r=result: callback(r))
-            except Exception as e:
+            except Exception:
                 self.after(0, lambda: callback([]))
         return _fetch
 
@@ -827,13 +891,33 @@ class App(tk.Tk):
     # ── ヘルパー ──────────────────────────────────────────────
     def _log(self, msg, tag="", key="mod"):
         box = self._log_boxes.get(key, self._log_boxes["mod"])
-        self.after(0, lambda: (box.insert("end", msg+"\n", tag), box.see("end")))
+        def _do():
+            at_bottom = box.yview()[1] >= 0.999
+            box.insert("end", msg + "\n", tag)
+            if at_bottom:
+                box.see("end")
+        self.after(0, _do)
 
-    def _set_status(self, msg): self.after(0, lambda: self._prog_label.config(text=msg))
+    def _set_status(self, msg):
+        def _do():
+            self._prog_label.config(text=msg)
+            # 現在アクティブなパネルのミニラベルにも反映
+            for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
+                if hasattr(panel, "_mini_prog_label"):
+                    panel._mini_prog_label.config(text=msg)
+        self.after(0, _do)
+
     def _set_progress(self, v, maximum=None):
         def _do():
-            if maximum is not None: self._progress.configure(maximum=maximum)
+            if maximum is not None:
+                self._progress.configure(maximum=maximum)
             self._progress.configure(value=v)
+            # アクティブパネルのミニバーにも反映
+            for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
+                if hasattr(panel, "_mini_progress"):
+                    if maximum is not None:
+                        panel._mini_progress.configure(maximum=maximum)
+                    panel._mini_progress.configure(value=v)
         self.after(0, _do)
 
     def _build_plugin_tab(self, p):
@@ -867,21 +951,37 @@ class App(tk.Tk):
             box.config(bg=t["LOG"], fg=t["FG"],
                        selectbackground=t["SEL"], selectforeground=t["SEL_FG"],
                        insertbackground=t["FG"])
-            try: box.frame.configure(background=t["LOG"])
-            except Exception: pass
+            box.frame.configure(background=t["LOG"])
             for tag, color in [("ok",t["GRN"]),("err",t["RED"]),("info",t["ACC"]),("warn",t["YEL"])]:
                 box.tag_config(tag, foreground=color)
         # ラベルの色を更新
-        self._mode_desc.config(foreground=t["YEL"], background=t["BG"])
-        self._ver_status.config(background=t["BG"])
+        self._mode_desc.config(fg=t["YEL"], bg=t["BG"])
+        self._ver_status.config(fg=t["YEL"], bg=t["BG"])
         self._profile_note.config(foreground=t["YEL"], background=t["BG"])
+        if hasattr(self, "_settings_warn_label"):
+            self._settings_warn_label.config(fg=t["RED"], bg=t["BG"])
         if self._settings_canvas:
             self._settings_canvas.config(bg=t["BG"])
-        # Treeview・サイドパネルキャンバスの色を更新
+        # Treeview は ttk.Style 側（_apply_style）で色が更新されるため configure 不要
+        # サイドパネル（Canvas・Frame・tk.Label）の色を更新
         for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
-            panel._tree.configure(background=t["BG2"], foreground=t["FG"],
-                                   fieldbackground=t["BG2"])
             panel._side_canvas.configure(bg=t["BG"])
+            panel._side_frame.configure(bg=t["BG"])
+            panel._side_sep.configure(bg=t["BG3"])
+            panel._side_lbl_sel.configure(bg=t["BG"], fg=t["FG"])
+            panel._side_name.configure(bg=t["BG"], fg=t["FG"])
+            panel._side_lbl_ver.configure(bg=t["BG"], fg=t["FG"])
+            panel._ver_status.configure(bg=t["BG"])
+            # ver_status の fg は現在の状態テキストから判定して維持
+            vs_text = panel._ver_status.cget("text")
+            if vs_text.startswith("✅"):
+                panel._ver_status.configure(fg=t["GRN"])
+            elif vs_text.startswith("⚠"):
+                panel._ver_status.configure(fg=t["RED"])
+            elif vs_text.startswith("🔄"):
+                panel._ver_status.configure(fg=t["YEL"])
+            else:
+                panel._ver_status.configure(fg=t["FG"])
         # プラグインタブにも適用
         if hasattr(self, "_plugin_app") and self._plugin_app:
             self._plugin_app.apply_theme(self._theme)
@@ -925,13 +1025,21 @@ class App(tk.Tk):
         for ev in ("<MouseWheel>","<Button-4>","<Button-5>"): self._ver_cb.bind(ev, _block)
 
     def _filter_versions(self):
-        min_ver = LOADER_MIN.get(self.target_loader.get())
-        all_v   = list(self._ver_cb["values"])
-        if not all_v or not min_ver: return
-        filtered = [v for v in all_v if ver_tuple(v) >= min_ver]
+        loader  = self.target_loader.get()
+        min_ver = LOADER_MIN.get(loader)
+        # 全バージョンリストを _all_versions に保持し、常にそこからフィルタする
+        # （フィルタ済みリストを再フィルタすると元に戻せなくなる）
+        if not hasattr(self, "_all_versions") or not self._all_versions:
+            self._all_versions = list(self._ver_cb["values"])
+        all_v    = self._all_versions
+        filtered = [v for v in all_v if ver_tuple(v) >= min_ver] if min_ver else all_v
+        if not filtered:
+            filtered = all_v
         self._ver_cb["values"] = filtered
-        if self.target_version.get() not in filtered and filtered:
-            self._ver_cb.set(filtered[0]); self.target_version.set(filtered[0])
+        cur = self.target_version.get()
+        if cur not in filtered:
+            self._ver_cb.set(filtered[0])
+            self.target_version.set(filtered[0])
 
     def _show_api_guide(self):
         base     = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
@@ -1085,7 +1193,12 @@ class App(tk.Tk):
         if self._running: messagebox.showwarning("実行中","現在アップデート中です"); return
         self._running = True; self._cancel_flag = False
         self._set_progress(0, len(tasks)); self._nb.select(2)
-        self.after(0, lambda: self._cancel_btn.config(state="normal"))
+        def _enable_cancel():
+            self._cancel_btn.config(state="normal")
+            for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
+                if hasattr(panel, "_mini_cancel_btn"):
+                    panel._mini_cancel_btn.config(state="normal")
+        self.after(0, _enable_cancel)
         threading.Thread(target=self._worker,
                           args=(tasks, self.target_version.get(), self.target_loader.get(),
                                 self.dl_mode.get(), self.cf_api_key.get().strip()),
@@ -1160,7 +1273,7 @@ class App(tk.Tk):
                                         self.after(0, lambda di=dep_item: self._mod_panel.add_item(di,"dep"))
                                         results[key]["ok"].append(f"[依存] {df}")
                                 else:
-                                    self._log(f"  🔗 依存Mod: 対応バージョンなし","warn",key)
+                                    self._log("  🔗 依存Mod: 対応バージョンなし", "warn", key)
                             except Exception as e:
                                 self._log(f"  🔗 依存エラー: {e}","err",key)
                 else:
@@ -1190,7 +1303,12 @@ class App(tk.Tk):
 
         self._set_status("完了" if not self._cancel_flag else "中止")
         self._running = False
-        self.after(0, lambda: self._cancel_btn.config(state="disabled"))
+        def _disable_cancel():
+            self._cancel_btn.config(state="disabled")
+            for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
+                if hasattr(panel, "_mini_cancel_btn"):
+                    panel._mini_cancel_btn.config(state="disabled")
+        self.after(0, _disable_cancel)
         msg = f"✅ 成功: {total_ok} 件\n❌ 失敗: {total_fail} 件"
         if total_fail:
             msg += "\n"
@@ -1222,6 +1340,8 @@ class App(tk.Tk):
         versions = fetch_mc_versions()
         def _upd():
             cur = self.target_version.get()
+            # 全バージョンリストを更新（フィルタのベースになる）
+            self._all_versions = list(versions)
             self._ver_cb["values"] = versions
             self._ver_cb.set(cur if cur in versions else versions[0])
             self.target_version.set(self._ver_cb.get())
@@ -1237,7 +1357,8 @@ class App(tk.Tk):
         self.after(0, _upd)
 
     def _on_close(self):
-        save_config({
+        cfg = load_config()
+        cfg.update({
             "profile_dir":    self.profile_dir.get(),
             "mods_dir":       self.mods_dir.get(),
             "rp_dir":         self.rp_dir.get(),
@@ -1255,6 +1376,16 @@ class App(tk.Tk):
             "toast_duration": self.toast_duration.get(),
             "theme":          self._theme,
         })
+        # plugin_updater の設定を値を直接取り出してマージ（別ファイルに保存されないよう）
+        if hasattr(self, "_plugin_app") and self._plugin_app:
+            pa = self._plugin_app
+            cfg.update({
+                "plugins_dir":          pa.plugins_dir.get(),
+                "plugin_delete_old":    pa.delete_old.get(),
+                "plugin_delete_failed": pa.delete_failed.get(),
+                "plugin_auto_deps":     pa.auto_deps.get(),
+            })
+        save_config(cfg)
         self.destroy()
 
 if __name__ == "__main__":

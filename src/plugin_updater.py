@@ -3,7 +3,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 import urllib.request, urllib.parse
 
 MODRINTH_API = "https://api.modrinth.com/v2"
-CONFIG_FILE  = os.path.join(os.path.expanduser("~"), ".mc_plugin_updater_config.json")
+CONFIG_FILE  = os.path.join(os.path.expanduser("~"), ".mc_pack_updater_config.json")
 
 THEMES = {
     "light": {
@@ -45,6 +45,14 @@ THEMES = {
 }
 
 # ── ユーティリティ ─────────────────────────────────────────────────────────────
+
+# ── mod_updater.py との後方互換スタブ ──────────────────────────────────────
+# mod_updater.py の _build_plugin_tab が動的インポート後に
+# mod._apply_theme_globals(theme) を呼ぶため、空実装を用意しておく。
+# テーマ状態は PluginUpdaterApp 内で self._theme として管理するため
+# グローバル変数は不要だが、呼び出し自体は無害に受け流す。
+def _apply_theme_globals(theme):
+    pass
 
 def load_config():
     try:
@@ -282,19 +290,23 @@ class PluginUpdaterApp(ttk.Frame):
         lf5 = ttk.LabelFrame(f, text="⚠  注意")
         lf5.pack(fill="x", **PAD)
         msg = (
-            "このツールはModrinthを使用してプラグインをダウンロードします。\n"
+            "このツールはModrinthを使用してプラグインをダウンロードします。\n\n"
             "プラグインのダウンロード・アップデートはできますが、"
-            "お使いのMinecraftサーバーのバージョンやPlugin Loader（Spigot / Paper / Purpur / Velocity等）"
-            "で正常に動作するとは限りません。\n"
+            "お使いのMinecraftサーバーのバージョンや"
+            "Plugin Loader（Spigot / Paper / Purpur / Velocity等）で"
+            "正常に動作するとは限りません。\n\n"
             "アップデート前に必ずバックアップを取り、自己責任でご使用ください。"
         )
         warn = tk.Label(
             lf5, text=msg,
-            wraplength=560, justify="left",
+            justify="left", anchor="nw",
             fg=t["RED"], bg=t["BG"],
             font=("Yu Gothic UI", 9),
         )
-        warn.pack(padx=10, pady=8, anchor="w")
+        warn.pack(padx=10, pady=8, anchor="nw", fill="x", expand=True)
+        def _update_plugin_warn_wrap(e, lbl=warn):
+            lbl.configure(wraplength=max(100, e.width - 20))
+        lf5.bind("<Configure>", _update_plugin_warn_wrap)
         self._warn_label = warn
         self._tk_widgets.append((warn, "RED", "fg"))
         self._tk_widgets.append((warn, "BG",  "bg"))
@@ -346,34 +358,50 @@ class PluginUpdaterApp(ttk.Frame):
         self._side.pack_propagate(False)
 
         t = THEMES[self._theme]
-        sc = tk.Canvas(self._side, highlightthickness=0, bg=t["BG"])
-        sv = ttk.Scrollbar(self._side, orient="vertical", command=sc.yview)
-        sc.configure(yscrollcommand=sv.set)
-        sv.pack(side="right", fill="y")
-        sc.pack(side="left", fill="both", expand=True)
-        sf  = ttk.Frame(sc)
-        sw  = sc.create_window((0, 0), window=sf, anchor="nw")
-        sf.bind("<Configure>",  lambda e: sc.configure(scrollregion=sc.bbox("all")))
-        sc.bind("<Configure>",  lambda e: sc.itemconfig(sw, width=e.width))
-        sc.bind("<MouseWheel>", lambda e: sc.yview_scroll(int(-1 * (e.delta / 120)), "units"))
-        self._side_canvas = sc
-        self._tk_widgets.append((sc, "BG", "bg"))
+        # スクロールなしのシンプルなフレーム
+        sf = tk.Frame(self._side, bg=t["BG"])
+        sf.pack(fill="both", expand=True)
+        # _side_canvas/_side_frame はapply_themeで参照されるため両方sfを指す
+        self._side_canvas = sf
+        self._side_frame  = sf
+        self._tk_widgets.append((sf, "BG", "bg"))
 
-        ttk.Label(sf, text="選択中:", font=("Yu Gothic UI", 8)).pack(anchor="w", padx=8, pady=(8, 0))
-        self._side_name = ttk.Label(sf, text="—", wraplength=195, font=("Yu Gothic UI", 9, "bold"))
+        # サイドパネル内のラベルは tk.Label で作り bg を直接管理する
+        lbl_sel = tk.Label(sf, text="選択中:", font=("Yu Gothic UI", 8),
+                           bg=t["BG"], fg=t["FG"])
+        lbl_sel.pack(anchor="w", padx=8, pady=(8, 0))
+        self._tk_widgets.append((lbl_sel, "BG", "bg"))
+        self._tk_widgets.append((lbl_sel, "FG", "fg"))
+
+        self._side_name = tk.Label(sf, text="—", wraplength=195,
+                                   font=("Yu Gothic UI", 9, "bold"),
+                                   bg=t["BG"], fg=t["FG"], justify="left")
         self._side_name.pack(anchor="w", padx=8, pady=(0, 6))
+        self._tk_widgets.append((self._side_name, "BG", "bg"))
+        self._tk_widgets.append((self._side_name, "FG", "fg"))
 
-        ttk.Separator(sf, orient="horizontal").pack(fill="x", padx=8, pady=4)
+        # Separator は tk.Frame で代替（ttk.Separator は bg 制御が複雑）
+        sep = tk.Frame(sf, height=1, bg=t["BG3"])
+        sep.pack(fill="x", padx=8, pady=4)
+        self._tk_widgets.append((sep, "BG3", "bg"))
 
-        ttk.Label(sf, text="バージョン:").pack(anchor="w", padx=8, pady=(0, 2))
+        lbl_ver = tk.Label(sf, text="バージョン:", font=("Yu Gothic UI", 10),
+                           bg=t["BG"], fg=t["FG"])
+        lbl_ver.pack(anchor="w", padx=8, pady=(0, 2))
+        self._tk_widgets.append((lbl_ver, "BG", "bg"))
+        self._tk_widgets.append((lbl_ver, "FG", "fg"))
+
         self._ver_var   = tk.StringVar(value="最新")
         self._ver_combo = ttk.Combobox(sf, textvariable=self._ver_var, state="readonly", width=24)
         self._ver_combo.pack(padx=8, pady=(0, 2), fill="x")
         self._ver_combo.bind("<<ComboboxSelected>>", self._on_ver_select)
 
-        # バージョン状態ラベル（色は apply_theme で動的に設定）
-        self._ver_status_side = ttk.Label(sf, text="", font=("Yu Gothic UI", 8))
+        # バージョン状態ラベル（色は apply_theme / 各操作で動的に設定）
+        self._ver_status_side = tk.Label(sf, text="", font=("Yu Gothic UI", 8),
+                                         bg=t["BG"], fg=t["FG"])
         self._ver_status_side.pack(anchor="w", padx=8, pady=(0, 4))
+        self._tk_widgets.append((self._ver_status_side, "BG", "bg"))
+        # fg は状態に応じて変わるため BG だけ登録し、fg は _refresh_ver_status_color で管理
 
         ttk.Button(sf, text="🔄 バージョン取得", command=self._fetch_versions_side).pack(padx=8, pady=(0, 8), fill="x")
 
@@ -386,10 +414,10 @@ class PluginUpdaterApp(ttk.Frame):
             insertbackground=t["FG"],
             font=("Consolas", 9), relief="flat", wrap="word",
         )
-        try:
-            self._log_box.frame.configure(background=t["LOG"])
-        except Exception:
-            pass
+        # ScrolledText.frame は tk.Frame（スクロールバーと Text を包むコンテナ）
+        # bg を直接設定して apply_theme でも更新できるよう登録する
+        self._log_box.frame.configure(background=t["LOG"])
+        self._tk_widgets.append((self._log_box.frame, "LOG", "bg"))
         self._log_box.pack(fill="both", expand=True, padx=8, pady=8)
         self._refresh_log_tags()
         ttk.Button(p, text="クリア", command=lambda: self._log_box.delete("1.0", "end")).pack(pady=(0, 8))
@@ -420,48 +448,44 @@ class PluginUpdaterApp(ttk.Frame):
             except Exception:
                 pass
 
-        # 2) ログボックス
+        # 2) ログボックス本体 と ScrolledText.frame（外側tk.Frame）
         self._log_box.config(
             bg=t["LOG"], fg=t["FG"],
             selectbackground=t["SEL"], selectforeground=t["SEL_FG"],
             insertbackground=t["FG"],
         )
-        try:
-            self._log_box.frame.configure(background=t["LOG"])
-        except Exception:
-            pass
+        # frame は _tk_widgets に登録済みなので上の一括更新で処理済み
         self._refresh_log_tags()
 
-        # 3) Treeview（fieldbackground は ttk.Style 側で制御されるが念のため）
-        self._tree.configure(
-            background=t["BG2"],
-            foreground=t["FG"],
-            fieldbackground=t["BG2"],
-        )
+        # 3) Treeview の色は ttk.Style 側（_apply_style）で制御されるため
+        #    ここでは何もしない（configure で background 等を渡すと TclError になる）
 
         # 4) バージョン状態ラベルの色を現在の状態に合わせてリセット
         #    （選択中のアイテムがあれば再描画、なければニュートラル表示）
         self._refresh_ver_status_color()
 
     def _refresh_ver_status_color(self):
-        """バージョン状態ラベルの foreground を現在テーマで正しく設定しなおす"""
+        """バージョン状態ラベルの fg を現在テーマで正しく設定しなおす"""
         t = self._t()
         text = self._ver_status_side.cget("text")
         if text.startswith("✅"):
-            self._ver_status_side.config(foreground=t["GRN"])
+            self._ver_status_side.config(fg=t["GRN"])
         elif text.startswith("⚠"):
-            self._ver_status_side.config(foreground=t["RED"])
+            self._ver_status_side.config(fg=t["RED"])
         elif text.startswith("🔄"):
-            self._ver_status_side.config(foreground=t["YEL"])
+            self._ver_status_side.config(fg=t["YEL"])
         else:
-            self._ver_status_side.config(foreground=t["FG"])
+            self._ver_status_side.config(fg=t["FG"])
 
     # ── ヘルパー ──────────────────────────────────────────────────────────────
 
     def _log(self, msg, tag=""):
         def _do():
+            # ユーザーが一番下付近にいる時だけ自動スクロール
+            at_bottom = self._log_box.yview()[1] >= 0.999
             self._log_box.insert("end", msg + "\n", tag)
-            self._log_box.see("end")
+            if at_bottom:
+                self._log_box.see("end")
         self.after(0, _do)
 
     def _set_status(self, msg):
@@ -528,14 +552,14 @@ class PluginUpdaterApp(ttk.Frame):
             self._ver_var.set(cached_label)
             self._ver_status_side.config(
                 text=f"✅ {cached_label} を選択中",
-                foreground=self._t()["GRN"],
+                fg=self._t()["GRN"],
             )
         else:
             self._ver_combo["values"] = ["最新"]
             self._ver_var.set("最新")
             self._ver_status_side.config(
                 text="← バージョン取得ボタンで一覧を取得",
-                foreground=self._t()["FG"],
+                fg=self._t()["FG"],
             )
 
     def _fetch_versions_side(self):
@@ -544,7 +568,7 @@ class PluginUpdaterApp(ttk.Frame):
         item = next((it for it in self.plugin_list if it["filename"] == self._current_iid), None)
         if not item:
             return
-        self._ver_status_side.config(text="🔄 取得中...", foreground=self._t()["YEL"])
+        self._ver_status_side.config(text="🔄 取得中...", fg=self._t()["YEL"])
         self._ver_combo.config(state="disabled")
 
         def _fetch():
@@ -570,9 +594,9 @@ class PluginUpdaterApp(ttk.Frame):
         self._ver_var.set(override.get("label", "最新") if override else "最新")
 
         if results:
-            self._ver_status_side.config(text=f"✅ {len(results)} 件取得", foreground=self._t()["GRN"])
+            self._ver_status_side.config(text=f"✅ {len(results)} 件取得", fg=self._t()["GRN"])
         else:
-            self._ver_status_side.config(text="⚠ バージョンなし", foreground=self._t()["RED"])
+            self._ver_status_side.config(text="⚠ バージョンなし", fg=self._t()["RED"])
 
     def _on_ver_select(self, e=None):
         if not self._current_iid:
@@ -580,12 +604,12 @@ class PluginUpdaterApp(ttk.Frame):
         label = self._ver_var.get()
         if label == "最新":
             self._ver_overrides.pop(self._current_iid, None)
-            self._ver_status_side.config(text="✅ 最新でDL", foreground=self._t()["GRN"])
+            self._ver_status_side.config(text="✅ 最新でDL", fg=self._t()["GRN"])
         else:
             ver = next((v for v in self._versions_cache if v["label"] == label), None)
             if ver:
                 self._ver_overrides[self._current_iid] = {"id": ver["id"], "label": label}
-            self._ver_status_side.config(text=f"✅ {label} を選択", foreground=self._t()["GRN"])
+            self._ver_status_side.config(text=f"✅ {label} を選択", fg=self._t()["GRN"])
 
     def _sel_all(self, v):
         mark = "☑" if v else "☐"
@@ -618,7 +642,7 @@ class PluginUpdaterApp(ttk.Frame):
         self._side_name.config(text="—")
         self._ver_combo["values"] = ["最新"]
         self._ver_var.set("最新")
-        self._ver_status_side.config(text="", foreground=self._t()["FG"])
+        self._ver_status_side.config(text="", fg=self._t()["FG"])
 
         self._log(f"📂 {len(jars)} 個のJARを解析中...", "info")
         for fname in jars:
