@@ -89,6 +89,27 @@ MC-Pack-Updater/
   PyInstaller でのバンドルを容易にするため外部ライブラリの使用は最小限にしている。
 - **`plugin_updater.py`** ― プラグインタブの実装。EXE ビルド時に
   `--add-data` でバンドルされ、`mod_updater.py` から動的に読み込まれる。
+  埋め込み時は `parent_app` 経由で `mod_updater.py` の進捗バー・中止ボタンを共有する。
+
+### バックアップモードの仕組み
+
+バックアップモードは **全体設定タブ** で管理される全体設定です。
+
+- 設定値は `App.backup_mode`（`BooleanVar`）・`App.backup_dir`（`StringVar`）で保持。
+- `mod_updater.py` の `_worker` では `_backup_ts`（実行開始時のタイムスタンプ）を一度だけ生成し、
+  同一実行内の全タイプ（mods / resourcepacks / shaderpacks）で共有します。
+- `plugin_updater.py` の `_worker` では `parent_app.backup_mode` / `parent_app.backup_dir` / `parent_app.target_version` を参照してバックアップフォルダを決定します。
+- バックアップモードON時は `delete_old` / `delete_failed` / `old_path` をすべて無効化し、元ファイルへの変更を一切行いません。
+
+出力フォルダ構造：
+```
+[出力先]/
+  └─ v{MCバージョン}_{YYYY-MM-DD}_{HH-MM-SS}/
+       ├─ mods
+       ├─ resourcepacks
+       ├─ shaderpacks
+       └─ plugins
+```
 
 ---
 
@@ -221,3 +242,6 @@ for h in result["hits"]:
   色の追加・変更はここのみを編集してください。
 - 設定の永続化は `~/.mc_pack_updater_config.json` に JSON 形式で行います。
   新しい設定項目を追加する場合は `load_config()` / `save_config()` を利用してください。
+- `plugin_updater.py` の `PluginUpdaterApp` は埋め込み時に `parent_app` 引数で `mod_updater.py` の `App` インスタンスを受け取ります。
+  進捗バー・中止ボタン・バックアップモード設定など共有リソースはすべて `parent_app` 経由でアクセスしてください。
+  `parent_app` が `None`（スタンドアロン起動）のケースも考慮し、`hasattr` でガードを入れてください。
