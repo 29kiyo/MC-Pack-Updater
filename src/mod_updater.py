@@ -622,9 +622,9 @@ class App(tk.Tk):
         try:
             from PIL import Image, ImageTk
             base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-            gh_ico_path = os.path.join(base, "GitHub_Lockup_Black.ico")
-            pil_img = Image.open(gh_ico_path)
-            # 高さ36pxに縮小
+            t = THEMES[self._theme]
+            ico_name = "GitHub_Lockup_White.ico" if self._theme == "dark" else "GitHub_Lockup_Black.ico"
+            pil_img = Image.open(os.path.join(base, ico_name))
             target_h = 36
             target_w = int(pil_img.width * target_h / pil_img.height)
             pil_img = pil_img.resize((target_w, target_h), Image.LANCZOS)
@@ -633,7 +633,7 @@ class App(tk.Tk):
                 gh_frame,
                 image=gh_img,
                 command=lambda: webbrowser.open("https://github.com/29kiyo/MC-Pack-Updater"),
-                bg="#ffffff", activebackground="#eeeeee",
+                bg=t["BG"], activebackground=t["BG2"],
                 relief="flat", cursor="hand2",
                 bd=0, padx=8, pady=4
             )
