@@ -41,6 +41,13 @@ jobs:
             --add-data "src\plugin_updater.py;." `
             --version-file assets\version_info.txt `
             --hidden-import PIL `
+            --exclude-module PIL.ImageFilter `
+            --exclude-module PIL.ImageDraw `
+            --exclude-module PIL.ImageFont `
+            --exclude-module PIL.ImageEnhance `
+            --exclude-module PIL.ImageChops `
+            --exclude-module PIL.ImageSequence `
+            --exclude-module PIL.ImagePalette `
             src\mod_updater.py
 
       - name: Zip onedir
@@ -61,6 +68,13 @@ jobs:
             --add-data "src\plugin_updater.py;." `
             --version-file assets\version_info.txt `
             --hidden-import PIL `
+            --exclude-module PIL.ImageFilter `
+            --exclude-module PIL.ImageDraw `
+            --exclude-module PIL.ImageFont `
+            --exclude-module PIL.ImageEnhance `
+            --exclude-module PIL.ImageChops `
+            --exclude-module PIL.ImageSequence `
+            --exclude-module PIL.ImagePalette `
             src\mod_updater.py
 
       # ── 直前のReleaseをプレリリースに変更（手動実行時のみ） ──
