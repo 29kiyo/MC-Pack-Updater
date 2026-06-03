@@ -236,15 +236,6 @@ class PluginUpdaterApp(ttk.Frame):
         self._build_list(t_lst)
         self._build_log(t_log)
 
-        bar = ttk.Frame(self)
-        bar.pack(fill="x", padx=8, pady=(0, 6))
-        self._progress   = ttk.Progressbar(bar, mode="determinate")
-        self._progress.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        self._prog_label = ttk.Label(bar, text="", width=30)
-        self._prog_label.pack(side="left")
-        self._cancel_btn = ttk.Button(bar, text="⏹ 中止", command=self._cancel, state="disabled")
-        self._cancel_btn.pack(side="left", padx=(6, 0))
-
     def _build_settings(self, p):
         t = THEMES[self._theme]
         f = ttk.Frame(p)
@@ -489,24 +480,30 @@ class PluginUpdaterApp(ttk.Frame):
         self.after(0, _do)
 
     def _set_status(self, msg):
-        self.after(0, lambda: self._prog_label.config(text=msg))
+        app = self._parent_app
+        if app and hasattr(app, "_prog_label"):
+            self.after(0, lambda: app._prog_label.config(text=msg))
 
     def _set_progress(self, v, maximum=None):
-        def _do():
-            if maximum is not None:
-                self._progress.configure(maximum=maximum)
-            self._progress.configure(value=v)
-        self.after(0, _do)
+        app = self._parent_app
+        if app and hasattr(app, "_progress"):
+            def _do():
+                if maximum is not None:
+                    app._progress.configure(maximum=maximum)
+                app._progress.configure(value=v)
+            self.after(0, _do)
+
+    def _cancel(self):
+        self._cancel_flag = True
+        self._set_status("中止中...")
+        app = self._parent_app
+        if app and hasattr(app, "_cancel_btn"):
+            self.after(0, lambda: app._cancel_btn.config(state="disabled"))
 
     def _browse(self, var):
         d = filedialog.askdirectory()
         if d:
             var.set(d)
-
-    def _cancel(self):
-        self._cancel_flag = True
-        self._set_status("中止中...")
-        self._cancel_btn.config(state="disabled")
 
     def _disable_combobox_wheel(self):
         def _block(e): return "break"
@@ -684,7 +681,9 @@ class PluginUpdaterApp(ttk.Frame):
         self._cancel_flag = False
         self._set_progress(0, len(selected))
         self._nb.select(2)
-        self.after(0, lambda: self._cancel_btn.config(state="normal"))
+        app = self._parent_app
+        if app and hasattr(app, "_cancel_btn"):
+            self.after(0, lambda: app._cancel_btn.config(state="normal"))
         threading.Thread(target=self._worker, args=(selected,), daemon=True).start()
 
     def _worker(self, plugins):
@@ -695,6 +694,31 @@ class PluginUpdaterApp(ttk.Frame):
         done_deps   = set()
         ok_list     = []
         fail_list   = []
+
+        # バックアップモード
+        import datetime
+        app         = self._parent_app
+        backup_on   = app.backup_mode.get() if (app and hasattr(app, "backup_mode")) else False
+        backup_base = app.backup_dir.get().strip() if (app and hasattr(app, "backup_dir")) else ""
+        _backup_ts  = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        _backup_dir = None  # 初回DL時に作成
+
+        if backup_on:
+            if not backup_base or not os.path.isdir(backup_base):
+                self.after(0, lambda: messagebox.showerror(
+                    "バックアップモードエラー",
+                    "バックアップ出力先フォルダが設定されていないか存在しません。\n"
+                    "全体設定タブで有効なフォルダを指定してください。"))
+                self._running = False
+                return
+            mc_ver = app.target_version.get() if hasattr(app, "target_version") else "unknown"
+            _backup_dir = os.path.join(backup_base, f"v{mc_ver}_{_backup_ts}", "plugins")
+            os.makedirs(_backup_dir, exist_ok=True)
+            self._log(f"💾 バックアップモード ON → v{mc_ver}_{_backup_ts}/plugins", "info")
+
+        def _resolve_out(filename):
+            """バックアップONのときはバックアップフォルダ、OFFは通常フォルダ"""
+            return _backup_dir if backup_on else out_dir
 
         for i, plugin in enumerate(plugins):
             if self._cancel_flag:
@@ -711,8 +735,12 @@ class PluginUpdaterApp(ttk.Frame):
             dl_url, dl_fname, pid = find_plugin(name, _log, ver_id)
 
             if dl_url and dl_fname:
-                dest = os.path.join(out_dir, dl_fname)
-                if self._do_download(dl_url, dest, name, plugin.get("path"), delete_old, delete_fail):
+                actual_dir  = _resolve_out(plugin["filename"])
+                dest        = os.path.join(actual_dir, dl_fname)
+                do_del_old  = delete_old  and not backup_on
+                do_del_fail = delete_fail and not backup_on
+                old_path    = None if backup_on else plugin.get("path")
+                if self._do_download(dl_url, dest, name, old_path, do_del_old, do_del_fail):
                     ok_list.append(name)
                     if auto_deps:
                         for dep_name in plugin.get("depend", []):
@@ -724,15 +752,15 @@ class PluginUpdaterApp(ttk.Frame):
                                 continue
                             self._log(f"  🔗 前提プラグイン DL: {dep_name}", "info")
                             du, df, _ = find_plugin(dep_name, _log)
-                            if du and df and not os.path.exists(os.path.join(out_dir, df)):
-                                self._do_download(du, os.path.join(out_dir, df), dep_name, None, False, delete_fail)
+                            if du and df and not os.path.exists(os.path.join(actual_dir, df)):
+                                self._do_download(du, os.path.join(actual_dir, df), dep_name, None, False, do_del_fail)
                                 ok_list.append(f"[前提] {dep_name}")
                 else:
                     fail_list.append(name)
             else:
                 fail_list.append(name)
                 self._log("  ❌ スキップ", "err")
-                if delete_fail and plugin.get("path") and os.path.exists(plugin["path"]):
+                if delete_fail and not backup_on and plugin.get("path") and os.path.exists(plugin["path"]):
                     try:
                         os.remove(plugin["path"])
                         self._log("  🗑 失敗ファイル削除", "warn")
@@ -754,7 +782,9 @@ class PluginUpdaterApp(ttk.Frame):
 
         self._set_status("完了" if not self._cancel_flag else "中止")
         self._running = False
-        self.after(0, lambda: self._cancel_btn.config(state="disabled"))
+        app = self._parent_app
+        if app and hasattr(app, "_cancel_btn"):
+            self.after(0, lambda: app._cancel_btn.config(state="disabled"))
 
         msg = f"✅ 成功: {len(ok_list)} 件\n❌ 失敗: {len(fail_list)} 件"
         if fail_list:
@@ -889,9 +919,19 @@ class StandaloneApp(tk.Tk):
             style="Sub.TLabel",
         ).pack(pady=(2, 8))
 
-        self._plugin_app = PluginUpdaterApp(self, theme=self._theme, icon_path=self._icon_path)
-        self._plugin_app.pack(fill="both", expand=True, padx=12, pady=(0, 4))
+        self._plugin_app = PluginUpdaterApp(self, theme=self._theme, icon_path=self._icon_path,
+                                             parent_app=self)
+        self._plugin_app.pack(fill="both", expand=True, padx=12, pady=(0, 0))
         self._plugin_app._disable_combobox_wheel()
+
+        bar = ttk.Frame(self)
+        bar.pack(fill="x", padx=12, pady=(0, 6))
+        self._progress   = ttk.Progressbar(bar, mode="determinate")
+        self._progress.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self._prog_label = ttk.Label(bar, text="", width=30)
+        self._prog_label.pack(side="left")
+        self._cancel_btn = ttk.Button(bar, text="⏹ 中止", command=self._plugin_app._cancel, state="disabled")
+        self._cancel_btn.pack(side="left", padx=(6, 0))
 
     def _toggle_theme(self):
         self._theme = "dark" if self._theme == "light" else "light"

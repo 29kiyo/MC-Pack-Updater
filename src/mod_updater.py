@@ -515,6 +515,8 @@ class App(tk.Tk):
         self.auto_switch_tab  = tk.BooleanVar(value=cfg.get("auto_switch_tab",True))
         self.toast_enabled    = tk.BooleanVar(value=cfg.get("toast_enabled",True))
         self.toast_duration   = tk.IntVar(value=cfg.get("toast_duration",3))
+        self.backup_mode      = tk.BooleanVar(value=cfg.get("backup_mode", False))
+        self.backup_dir       = tk.StringVar(value=cfg.get("backup_dir", ""))
         self._toast_win       = None   # 現在表示中のトースト
         self._cf_key_showing = False
         self._running = self._cancel_flag = False
@@ -600,7 +602,37 @@ class App(tk.Tk):
         self._cancel_btn.pack(side="left", padx=(8,0))
 
     def _build_global_settings(self, p):
+        t = THEMES[self._theme]
         f = ttk.Frame(p); f.pack(fill="both", expand=True, padx=20, pady=16)
+
+        # ── バックアップモード ──────────────────────────────────
+        lf0 = ttk.LabelFrame(f, text="💾  バックアップモード"); lf0.pack(fill="x", pady=(0,10))
+
+        chk_row = ttk.Frame(lf0); chk_row.pack(fill="x", padx=10, pady=(8,4))
+        ttk.Checkbutton(chk_row, text="バックアップモードを有効にする（元ファイルを上書きせず別フォルダへ出力）",
+                         variable=self.backup_mode,
+                         command=self._on_backup_mode_toggle).pack(side="left", anchor="w")
+
+        dir_row = ttk.Frame(lf0); dir_row.pack(fill="x", padx=10, pady=(0,4))
+        self._backup_dir_lbl = tk.Label(dir_row, text="出力先フォルダ:",
+                                         bg=t["BG"], fg=t["FG"], font=("Yu Gothic UI", 10))
+        self._backup_dir_lbl.pack(side="left")
+        self._backup_dir_entry = ttk.Entry(dir_row, textvariable=self.backup_dir, width=38)
+        self._backup_dir_entry.pack(side="left", padx=(6,6))
+        self._backup_dir_browse_btn = ttk.Button(dir_row, text="参照",
+                                                  command=lambda: self._browse(self.backup_dir))
+        self._backup_dir_browse_btn.pack(side="left", padx=(0,6))
+        ttk.Button(dir_row, text="✕",
+                    command=lambda: self.backup_dir.set(""), width=3).pack(side="left")
+
+        self._backup_note_lbl = tk.Label(
+            lf0,
+            text="  ℹ  ONの場合: [出力先]/v{バージョン}_{日付}_{時刻}/mods|resourcepacks|shaderpacks|plugins へ保存",
+            bg=t["BG"], fg=t["YEL"], font=("Yu Gothic UI", 8), anchor="w", justify="left"
+        )
+        self._backup_note_lbl.pack(fill="x", padx=10, pady=(0,8))
+
+        self._on_backup_mode_toggle()  # 初期状態を反映
 
         # 一覧自動移動
         lf1 = ttk.LabelFrame(f, text="📦  一覧タブ"); lf1.pack(fill="x", pady=(0,10))
@@ -684,6 +716,25 @@ class App(tk.Tk):
         # 自動消去
         secs = max(1, min(30, self.toast_duration.get()))
         self.after(secs * 1000, lambda: toast.destroy() if toast.winfo_exists() else None)
+
+    def _on_backup_mode_toggle(self):
+        """バックアップモードON/OFFに応じて出力先UIの活性状態を切り替える"""
+        state = "normal" if self.backup_mode.get() else "disabled"
+        self._backup_dir_entry.config(state=state)
+        self._backup_dir_browse_btn.config(state=state)
+
+    def _get_backup_out_dir(self, mr_type_key):
+        """バックアップモード用の出力先サブフォルダパスを返す（親フォルダも作成）"""
+        import datetime
+        base    = self.backup_dir.get().strip()
+        mc_ver  = self.target_version.get()
+        now     = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        parent  = os.path.join(base, f"v{mc_ver}_{now}")
+        sub_map = {"mod": "mods", "rp": "resourcepacks", "shader": "shaderpacks", "plugin": "plugins"}
+        sub     = sub_map.get(mr_type_key, mr_type_key)
+        out     = os.path.join(parent, sub)
+        os.makedirs(out, exist_ok=True)
+        return out
 
     def _build_settings(self, p):
         t = THEMES[self._theme]
@@ -1019,6 +1070,11 @@ class App(tk.Tk):
                 self._gh_btn.config(image=gh_img, bg=t["BG"], activebackground=t["BG2"])
                 self._gh_btn.image = gh_img  # GC対策
             except Exception: pass  # 画像更新失敗時は現状維持
+        # バックアップモードウィジェットの色を更新
+        if hasattr(self, "_backup_dir_lbl"):
+            self._backup_dir_lbl.config(bg=t["BG"], fg=t["FG"])
+        if hasattr(self, "_backup_note_lbl"):
+            self._backup_note_lbl.config(bg=t["BG"], fg=t["YEL"])
         # プラグインタブにも適用
         if hasattr(self, "_plugin_app") and self._plugin_app:
             self._plugin_app.apply_theme(self._theme)
@@ -1242,12 +1298,41 @@ class App(tk.Tk):
                           daemon=True).start()
 
     def _worker(self, tasks, mc_ver, loader, mode, cf_key):
-        delete_old  = self.delete_old.get()
-        delete_fail = self.delete_failed.get()
-        auto_deps   = self.auto_deps.get()
-        strict      = self.strict_deps.get()
-        done_deps   = set()
-        results     = {"mod":{"ok":[],"fail":[]},"rp":{"ok":[],"fail":[]},"shader":{"ok":[],"fail":[]}}
+        delete_old   = self.delete_old.get()
+        delete_fail  = self.delete_failed.get()
+        auto_deps    = self.auto_deps.get()
+        strict       = self.strict_deps.get()
+        backup_on    = self.backup_mode.get()
+        backup_base  = self.backup_dir.get().strip()
+        done_deps    = set()
+        results      = {"mod":{"ok":[],"fail":[]},"rp":{"ok":[],"fail":[]},"shader":{"ok":[],"fail":[]}}
+
+        # バックアップモード時: 今回の実行で1つの親フォルダを共有する
+        import datetime
+        _backup_ts      = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        _backup_subdirs = {}  # key -> 実際の出力先フォルダ（初回アクセス時に作成）
+
+        def _resolve_out_dir(key, original_dir):
+            """バックアップモードONのときは専用サブフォルダを返す"""
+            if not backup_on:
+                return original_dir
+            if key not in _backup_subdirs:
+                sub_map = {"mod": "mods", "rp": "resourcepacks", "shader": "shaderpacks", "plugin": "plugins"}
+                parent  = os.path.join(backup_base, f"v{mc_ver}_{_backup_ts}")
+                out     = os.path.join(parent, sub_map.get(key, key))
+                os.makedirs(out, exist_ok=True)
+                _backup_subdirs[key] = out
+            return _backup_subdirs[key]
+
+        if backup_on:
+            if not backup_base or not os.path.isdir(backup_base):
+                self.after(0, lambda: messagebox.showerror(
+                    "バックアップモードエラー",
+                    "バックアップ出力先フォルダが設定されていないか存在しません。\n"
+                    "全体設定タブで有効なフォルダを指定してください。"))
+                self._running = False
+                return
+            self._log(f"💾 バックアップモード ON → v{mc_ver}_{_backup_ts}/", "info", "sys")
 
         for i, (item, out_dir, mr_type, cf_class) in enumerate(tasks):
             if self._cancel_flag:
@@ -1265,11 +1350,14 @@ class App(tk.Tk):
                 ver_override=item.get("_ver_override"))
 
             if dl_url and dl_fname:
-                dest       = os.path.join(out_dir, dl_fname)
-                do_del_old = delete_old  if mr_type == MR_MOD else False
-                do_del_fail= delete_fail if mr_type == MR_MOD else False
-                success    = self._do_download(dl_url, dest, name, source,
-                                                item.get("path"), do_del_old, do_del_fail, key)
+                actual_dir  = _resolve_out_dir(key, out_dir)
+                dest        = os.path.join(actual_dir, dl_fname)
+                # バックアップモード時は元ファイルを上書き・削除しない
+                do_del_old  = (delete_old  if mr_type == MR_MOD else False) and not backup_on
+                do_del_fail = (delete_fail if mr_type == MR_MOD else False) and not backup_on
+                old_path    = None if backup_on else item.get("path")
+                success     = self._do_download(dl_url, dest, name, source,
+                                                 old_path, do_del_old, do_del_fail, key)
                 if success:
                     results[key]["ok"].append(name)
                     if mr_type == MR_MOD and auto_deps and version_obj:
@@ -1283,8 +1371,8 @@ class App(tk.Tk):
                                     self._log(f"  🔗 指定バージョン: {dep_vid}","info",key)
                                     v_data = http_get(f"{MODRINTH_API}/version/{dep_vid}")
                                     du, df = mr_best_file(v_data)
-                                    # 既存の同Modで古いバージョンがあれば差し替え
-                                    if du and df:
+                                    # バックアップモード時は元フォルダを走査しない
+                                    if du and df and not backup_on:
                                         try:
                                             slug = http_get(f"{MODRINTH_API}/project/{dep_pid}").get("slug","")
                                             for fn in os.listdir(out_dir):
@@ -1294,14 +1382,14 @@ class App(tk.Tk):
                                                 if m.get("mod_id") == slug and fn != df:
                                                     self._log(f"  🔗 バージョン不足のため差し替え: {fn}","warn",key)
                                                     try: os.remove(fp)
-                                                    except Exception: pass  # 削除失敗は後続処理に影響しないため無視
+                                                    except Exception: pass
                                                     break
-                                        except Exception: pass  # 依存関係解決の失敗は後続処理に影響しないため無視
+                                        except Exception: pass
                                 else:
                                     vs = mr_get_versions(dep_pid, mc_ver, loader)
                                     if vs: du, df = mr_best_file(vs[0])
                                 if du and df:
-                                    ddest = os.path.join(out_dir, df)
+                                    ddest = os.path.join(actual_dir, df)
                                     if os.path.exists(ddest):
                                         self._log(f"  🔗 既存: {df}","ok",key)
                                     else:
@@ -1318,9 +1406,9 @@ class App(tk.Tk):
             else:
                 results[key]["fail"].append(name)
                 self._log("  ❌ スキップ（対応バージョンなし）","err",key)
-                if delete_fail and mr_type == MR_MOD and item.get("path") and os.path.exists(item["path"]):
+                if delete_fail and not backup_on and mr_type == MR_MOD and item.get("path") and os.path.exists(item["path"]):
                     try: os.remove(item["path"]); self._log(f"  🗑 失敗ファイル削除: {item['filename']}","warn",key)
-                    except Exception: pass  # 削除失敗は処理継続に影響しないため無視
+                    except Exception: pass
             self._set_progress(i+1)
 
         total_ok   = sum(len(v["ok"])   for v in results.values())
@@ -1411,6 +1499,8 @@ class App(tk.Tk):
             "auto_switch_tab":self.auto_switch_tab.get(),
             "toast_enabled":  self.toast_enabled.get(),
             "toast_duration": self.toast_duration.get(),
+            "backup_mode":    self.backup_mode.get(),
+            "backup_dir":     self.backup_dir.get(),
             "theme":          self._theme,
         })
         # plugin_updater の設定を値を直接取り出してマージ（別ファイルに保存されないよう）
