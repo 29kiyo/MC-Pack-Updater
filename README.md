@@ -1,9 +1,9 @@
 # ⛏ MC Pack Updater
 
-![Downloads](https://img.shields.io/github/downloads/YOUR_USERNAME/MC-Pack-Updater/total?style=flat-square&label=Downloads&color=4c1)
-![Latest Release](https://img.shields.io/github/v/release/YOUR_USERNAME/MC-Pack-Updater?style=flat-square&label=Latest)
-![License](https://img.shields.io/github/license/YOUR_USERNAME/MC-Pack-Updater?style=flat-square)
-![Build](https://img.shields.io/github/actions/workflow/status/YOUR_USERNAME/MC-Pack-Updater/build.yml?style=flat-square&label=Build)
+![Downloads](https://img.shields.io/github/downloads/29kiyo/MC-Pack-Updater/total?style=flat-square&label=Downloads&color=4c1)
+![Latest Release](https://img.shields.io/github/v/release/29kiyo/MC-Pack-Updater?style=flat-square&label=Latest)
+![License](https://img.shields.io/github/license/29kiyo/MC-Pack-Updater?style=flat-square)
+![Build](https://img.shields.io/github/actions/workflow/status/29kiyo/MC-Pack-Updater/build.yml?style=flat-square&label=Build)
 
 Minecraft の Mod / ResourcePack / Shader / Plugin を一括アップデートするツール。
 
