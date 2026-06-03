@@ -621,15 +621,15 @@ class App(tk.Tk):
         gh_frame = ttk.Frame(f); gh_frame.pack(fill="x", pady=(20, 0))
         try:
             from PIL import Image, ImageTk
-            base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+            self._gh_btn_base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
             t = THEMES[self._theme]
             ico_name = "GitHub_Lockup_White.ico" if self._theme == "dark" else "GitHub_Lockup_Black.ico"
-            pil_img = Image.open(os.path.join(base, ico_name))
+            pil_img = Image.open(os.path.join(self._gh_btn_base, ico_name))
             target_h = 36
             target_w = int(pil_img.width * target_h / pil_img.height)
             pil_img = pil_img.resize((target_w, target_h), Image.LANCZOS)
             gh_img = ImageTk.PhotoImage(pil_img)
-            gh_btn = tk.Button(
+            self._gh_btn = tk.Button(
                 gh_frame,
                 image=gh_img,
                 command=lambda: webbrowser.open("https://github.com/29kiyo/MC-Pack-Updater"),
@@ -637,8 +637,8 @@ class App(tk.Tk):
                 relief="flat", cursor="hand2",
                 bd=0, padx=8, pady=4
             )
-            gh_btn.image = gh_img  # GC対策
-            gh_btn.pack()
+            self._gh_btn.image = gh_img  # GC対策
+            self._gh_btn.pack()
         except Exception:
             pass
 
@@ -1007,6 +1007,20 @@ class App(tk.Tk):
                 panel._ver_status.configure(fg=t["YEL"])
             else:
                 panel._ver_status.configure(fg=t["FG"])
+        # GitHubボタンの画像をテーマに合わせて更新
+        if hasattr(self, "_gh_btn") and self._gh_btn.winfo_exists():
+            try:
+                from PIL import Image, ImageTk
+                ico_name = "GitHub_Lockup_White.ico" if self._theme == "dark" else "GitHub_Lockup_Black.ico"
+                pil_img = Image.open(os.path.join(self._gh_btn_base, ico_name))
+                target_h = 36
+                target_w = int(pil_img.width * target_h / pil_img.height)
+                pil_img = pil_img.resize((target_w, target_h), Image.LANCZOS)
+                gh_img = ImageTk.PhotoImage(pil_img)
+                self._gh_btn.config(image=gh_img, bg=t["BG"], activebackground=t["BG2"])
+                self._gh_btn.image = gh_img  # GC対策
+            except Exception:
+                pass
         # プラグインタブにも適用
         if hasattr(self, "_plugin_app") and self._plugin_app:
             self._plugin_app.apply_theme(self._theme)
