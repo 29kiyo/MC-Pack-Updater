@@ -619,9 +619,16 @@ class App(tk.Tk):
 
         # GitHub ボタン（画像）
         gh_frame = ttk.Frame(f); gh_frame.pack(fill="x", pady=(20, 0))
-        _GH_LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAAAJ0AAAAkCAIAAAAcga88AAABCGlDQ1BJQ0MgUHJvZmlsZQAAeJxjYGA8wQAELAYMDLl5JUVB7k4KEZFRCuwPGBiBEAwSk4sLGHADoKpv1yBqL+viUYcLcKakFicD6Q9ArFIEtBxopAiQLZIOYWuA2EkQtg2IXV5SUAJkB4DYRSFBzkB2CpCtkY7ETkJiJxcUgdT3ANk2uTmlyQh3M/Ck5oUGA2kOIJZhKGYIYnBncAL5H6IkfxEDg8VXBgbmCQixpJkMDNtbGRgkbiHEVBYwMPC3MDBsO48QQ4RJQWJRIliIBYiZ0tIYGD4tZ2DgjWRgEL7AwMAVDQsIHG5TALvNnSEfCNMZchhSgSKeDHkMyQx6QJYRgwGDIYMZAKbWPz9HbOBQAAAAJ0lEQVR4nO3BAQ0AAADCoPdPbQ8HFAAAAAAAAAAAAAAAAAAAAADPBkJgAAGHsLvOAAAAAElFTkSuQmCC"
         try:
-            gh_img = tk.PhotoImage(data=_GH_LOGO_B64)
+            from PIL import Image, ImageTk
+            base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+            gh_ico_path = os.path.join(base, "GitHub_Lockup_Black.ico")
+            pil_img = Image.open(gh_ico_path)
+            # 高さ36pxに縮小
+            target_h = 36
+            target_w = int(pil_img.width * target_h / pil_img.height)
+            pil_img = pil_img.resize((target_w, target_h), Image.LANCZOS)
+            gh_img = ImageTk.PhotoImage(pil_img)
             gh_btn = tk.Button(
                 gh_frame,
                 image=gh_img,
