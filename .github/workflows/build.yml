@@ -6,6 +6,11 @@ on:
     paths-ignore:
       - 'README.md'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'リリースバージョン（例: v1.1.0）'
+        required: true
+        type: string
 
 jobs:
   build:
@@ -90,8 +95,8 @@ jobs:
         uses: softprops/action-gh-release@v3
         if: github.event_name == 'workflow_dispatch'
         with:
-          tag_name: build-${{ github.run_number }}
-          name: "MC-Pack-Updater build #${{ github.run_number }}"
+          tag_name: ${{ github.event.inputs.version }}
+          name: "MC-Pack-Updater ${{ github.event.inputs.version }}"
           files: |
             dist\MC-Pack-Updater.zip
             dist\MC-Pack-Updater.exe
