@@ -639,8 +639,7 @@ class App(tk.Tk):
             )
             self._gh_btn.image = gh_img  # GC対策
             self._gh_btn.pack()
-        except Exception:
-            pass
+        except Exception: pass  # 画像読み込み失敗時はボタンを表示しない
 
     def _show_toast(self, message):
         """アプリ右下にトースト通知を表示する"""
@@ -879,7 +878,7 @@ class App(tk.Tk):
                 result = [{"label": f"{v.get('version_number','?')}  [{v.get('game_versions',['?'])[-1]}]",
                            "id": v["id"]} for v in versions]
                 self.after(0, lambda r=result: callback(r))
-            except Exception:
+            except Exception:  # バージョン取得失敗時は空リストで返す
                 self.after(0, lambda: callback([]))
         return _fetch
 
@@ -1019,8 +1018,7 @@ class App(tk.Tk):
                 gh_img = ImageTk.PhotoImage(pil_img)
                 self._gh_btn.config(image=gh_img, bg=t["BG"], activebackground=t["BG2"])
                 self._gh_btn.image = gh_img  # GC対策
-            except Exception:
-                pass
+            except Exception: pass  # 画像更新失敗時は現状維持
         # プラグインタブにも適用
         if hasattr(self, "_plugin_app") and self._plugin_app:
             self._plugin_app.apply_theme(self._theme)
