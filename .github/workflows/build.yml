@@ -34,6 +34,7 @@ jobs:
             --add-data "assets\GitHub_Lockup_Black.ico;." `
             --add-data "src\plugin_updater.py;." `
             --version-file assets\version_info.txt `
+            --hidden-import PIL `
             src\mod_updater.py
 
       - name: Zip onedir
@@ -52,6 +53,7 @@ jobs:
             --add-data "assets\GitHub_Lockup_Black.ico;." `
             --add-data "src\plugin_updater.py;." `
             --version-file assets\version_info.txt `
+            --hidden-import PIL `
             src\mod_updater.py
 
       # ── 直前のReleaseをプレリリースに変更（手動実行時のみ） ──
