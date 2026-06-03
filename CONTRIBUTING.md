@@ -62,16 +62,21 @@ MC-Pack-Updater/
 │   ├── mod_updater.py      # メイン（Mod/ResourcePack/Shader のUI・ロジック）
 │   └── plugin_updater.py   # プラグインタブのUI・ロジック
 ├── assets/
-│   ├── icon.ico            # アプリアイコン
-│   ├── API Key Guide.pdf   # CurseForge APIキー取得ガイド
-│   └── version_info.txt    # PyInstaller 用バージョン情報
+│   ├── icon.ico                  # アプリアイコン
+│   ├── API Key Guide.pdf         # CurseForge APIキー取得ガイド
+│   ├── GitHub_Lockup_Black.ico   # 全体設定タブのGitHubボタン画像
+│   ├── lightmode.png             # READMEスクリーンショット（ライトモード）
+│   ├── darkmode.png              # READMEスクリーンショット（ダークモード）
+│   └── version_info.txt          # PyInstaller 用バージョン情報
 ├── .github/
 │   └── workflows/
 │       ├── build.yml           # EXEビルド & リリース CI
+│       ├── codeql.yml          # CodeQL セキュリティスキャン
 │       ├── delete-releases.yml # 古いリリースの自動削除
 │       └── delete-runs.yml     # 古いワークフロー実行の自動削除
 ├── requirements.txt
 ├── LICENSE
+├── CONTRIBUTING.md
 └── README.md
 ```
 
@@ -105,6 +110,7 @@ pyinstaller --onedir --windowed --noupx --name "MC-Pack-Updater" `
   --icon assets\icon.ico `
   --add-data "assets\icon.ico;." `
   --add-data "assets\API Key Guide.pdf;." `
+  --add-data "assets\GitHub_Lockup_Black.ico;." `
   --add-data "src\plugin_updater.py;." `
   --version-file assets\version_info.txt `
   src\mod_updater.py
@@ -120,6 +126,7 @@ pyinstaller --onefile --windowed --noupx --name "MC-Pack-Updater" `
   --icon assets\icon.ico `
   --add-data "assets\icon.ico;." `
   --add-data "assets\API Key Guide.pdf;." `
+  --add-data "assets\GitHub_Lockup_Black.ico;." `
   --add-data "src\plugin_updater.py;." `
   --version-file assets\version_info.txt `
   src\mod_updater.py
