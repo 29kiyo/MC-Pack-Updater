@@ -47,6 +47,7 @@ pip install -r requirements.txt
 ```
 pyinstaller   # EXEビルド用（開発時に動作確認する際は不要）
 pymupdf       # PDF表示用（assets/API Key Guide.pdf の読み込みに使用）
+Pillow        # 画像処理用（全体設定タブのGitHubボタン画像の読み込みに使用）
 ```
 
 > **注意：** `pyinstaller` は EXE ビルドに必要ですが、
@@ -64,7 +65,8 @@ MC-Pack-Updater/
 ├── assets/
 │   ├── icon.ico                  # アプリアイコン
 │   ├── API Key Guide.pdf         # CurseForge APIキー取得ガイド
-│   ├── GitHub_Lockup_Black.ico   # 全体設定タブのGitHubボタン画像
+│   ├── GitHub_Lockup_Black.ico   # 全体設定タブのGitHubボタン画像（ライトモード用）
+│   ├── GitHub_Lockup_White.ico   # 全体設定タブのGitHubボタン画像（ダークモード用）
 │   ├── lightmode.png             # READMEスクリーンショット（ライトモード）
 │   ├── darkmode.png              # READMEスクリーンショット（ダークモード）
 │   └── version_info.txt          # PyInstaller 用バージョン情報
@@ -83,8 +85,8 @@ MC-Pack-Updater/
 ### アーキテクチャ概要
 
 - **`mod_updater.py`** ― アプリのエントリポイント。`tkinter` で GUI を構築し、
-  Modrinth / CurseForge API を `urllib` で直接叩く。外部ライブラリへの依存を最小化し、
-  PyInstaller でのバンドルを容易にしている。
+  Modrinth / CurseForge API を `urllib` で直接叩く。GitHubボタンの画像表示に `Pillow` を使用。
+  PyInstaller でのバンドルを容易にするため外部ライブラリの使用は最小限にしている。
 - **`plugin_updater.py`** ― プラグインタブの実装。EXE ビルド時に
   `--add-data` でバンドルされ、`mod_updater.py` から動的に読み込まれる。
 
@@ -111,8 +113,11 @@ pyinstaller --onedir --windowed --noupx --name "MC-Pack-Updater" `
   --add-data "assets\icon.ico;." `
   --add-data "assets\API Key Guide.pdf;." `
   --add-data "assets\GitHub_Lockup_Black.ico;." `
+  --add-data "assets\GitHub_Lockup_White.ico;." `
   --add-data "src\plugin_updater.py;." `
   --version-file assets\version_info.txt `
+  --hidden-import PIL `
+  --hidden-import PIL `
   src\mod_updater.py
 
 # ZIP化
@@ -127,6 +132,7 @@ pyinstaller --onefile --windowed --noupx --name "MC-Pack-Updater" `
   --add-data "assets\icon.ico;." `
   --add-data "assets\API Key Guide.pdf;." `
   --add-data "assets\GitHub_Lockup_Black.ico;." `
+  --add-data "assets\GitHub_Lockup_White.ico;." `
   --add-data "src\plugin_updater.py;." `
   --version-file assets\version_info.txt `
   src\mod_updater.py
