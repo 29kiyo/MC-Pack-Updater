@@ -617,6 +617,36 @@ class App(tk.Tk):
                      width=5, state="readonly").pack(side="left", padx=(6,4))
         ttk.Label(dur_row, text="秒  （上限: 30秒）").pack(side="left")
 
+        # GitHub ボタン（画像）
+        gh_frame = ttk.Frame(f); gh_frame.pack(fill="x", pady=(20, 0))
+        try:
+            base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+            gh_ico_path = os.path.join(base, "GitHub_Lockup_Black.ico")
+            gh_img = tk.PhotoImage(file=gh_ico_path)
+            # 適切なサイズに縮小（元画像が大きい場合）
+            gh_btn = tk.Button(
+                gh_frame,
+                image=gh_img,
+                command=lambda: webbrowser.open("https://github.com/29kiyo/MC-Pack-Updater"),
+                bg="#ffffff", activebackground="#eeeeee",
+                relief="flat", cursor="hand2",
+                bd=0, padx=8, pady=4
+            )
+            gh_btn.image = gh_img  # 参照を保持（GC対策）
+            gh_btn.pack()
+        except Exception:
+            # 画像読み込み失敗時はテキストボタンにフォールバック
+            tk.Button(
+                gh_frame,
+                text="GitHub でソースを見る",
+                command=lambda: webbrowser.open("https://github.com/29kiyo/MC-Pack-Updater"),
+                bg="#24292e", fg="#ffffff",
+                activebackground="#444d56", activeforeground="#ffffff",
+                font=("Yu Gothic UI", 10, "bold"),
+                relief="flat", cursor="hand2",
+                padx=16, pady=8
+            ).pack()
+
     def _show_toast(self, message):
         """アプリ右下にトースト通知を表示する"""
         if not self.toast_enabled.get(): return
