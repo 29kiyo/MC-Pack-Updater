@@ -31,6 +31,7 @@ jobs:
             --icon assets\icon.ico `
             --add-data "assets\icon.ico;." `
             --add-data "assets\API Key Guide.pdf;." `
+            --add-data "assets\GitHub_Lockup_Black.ico;." `
             --add-data "src\plugin_updater.py;." `
             --version-file assets\version_info.txt `
             src\mod_updater.py
@@ -48,6 +49,7 @@ jobs:
             --icon assets\icon.ico `
             --add-data "assets\icon.ico;." `
             --add-data "assets\API Key Guide.pdf;." `
+            --add-data "assets\GitHub_Lockup_Black.ico;." `
             --add-data "src\plugin_updater.py;." `
             --version-file assets\version_info.txt `
             src\mod_updater.py
