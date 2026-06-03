@@ -1,11 +1,11 @@
 # ⛏ MC Pack Updater
 
-![Downloads](https://img.shields.io/github/downloads/29kiyou/MC-Pack-Updater/total?style=flat-square&label=Downloads&color=4c1)
-![Latest Release](https://img.shields.io/github/v/release/29kiyou/MC-Pack-Updater?style=flat-square&label=Latest)
-![License](https://img.shields.io/github/license/29kiyou/MC-Pack-Updater?style=flat-square)
-![Build](https://img.shields.io/github/actions/workflow/status/29kiyou/MC-Pack-Updater/build.yml?style=flat-square&label=Build)
-![Last Commit](https://img.shields.io/github/last-commit/29kiyou/MC-Pack-Updater?style=flat-square&label=Last+Commit)
-![Release Date](https://img.shields.io/github/release-date/29kiyou/MC-Pack-Updater?style=flat-square&label=Released)
+![Downloads](https://img.shields.io/github/downloads/29kiyo/MC-Pack-Updater/total?style=flat-square&label=Downloads&color=4c1)
+![Latest Release](https://img.shields.io/github/v/release/29kiyo/MC-Pack-Updater?style=flat-square&label=Latest)
+![License](https://img.shields.io/github/license/29kiyo/MC-Pack-Updater?style=flat-square)
+![Build](https://img.shields.io/github/actions/workflow/status/29kiyo/MC-Pack-Updater/build.yml?style=flat-square&label=Build)
+![Last Commit](https://img.shields.io/github/last-commit/29kiyo/MC-Pack-Updater?style=flat-square&label=Last+Commit)
+![Release Date](https://img.shields.io/github/release-date/29kiyo/MC-Pack-Updater?style=flat-square&label=Released)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.11-blue?style=flat-square)
 
