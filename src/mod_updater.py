@@ -66,7 +66,7 @@ def save_config(data):
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception: pass
+    except Exception: pass  # 設定保存失敗は起動に影響しないため無視
 
 def http_get(url, headers=None):
     req = urllib.request.Request(url, headers=headers or {})
@@ -143,7 +143,7 @@ def read_jar_meta(jar_path):
                                 v = line.split("=",1)[1].strip().strip('"')
                                 if not v.startswith("$"): info["version"] = v
                     return info
-    except Exception: pass
+    except Exception: pass  # 解析失敗時は空の info を返す（呼び出し元でフォールバック）
     return info
 
 # ── Modrinth API ──────────────────────────────────────────────
@@ -155,7 +155,7 @@ def mr_find_project(sha1, mod_id, name, mr_type):
         try:
             r = fn()
             if r: return r
-        except Exception: pass
+        except Exception: pass  # 取得失敗時は次の取得方法を試みる
     try:
         params = urllib.parse.urlencode({"query":name,"limit":5,
                                           "facets":json.dumps([["project_type:"+mr_type]])})
@@ -487,7 +487,7 @@ class App(tk.Tk):
         try:
             import ctypes
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("MCPackUpdater.App.1.0")
-        except Exception: pass
+        except Exception: pass  # Windows専用API。非Windows環境では失敗するが問題なし
         try:
             base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
             ip   = os.path.join(base, "icon.ico")
@@ -619,11 +619,9 @@ class App(tk.Tk):
 
         # GitHub ボタン（画像）
         gh_frame = ttk.Frame(f); gh_frame.pack(fill="x", pady=(20, 0))
+        _GH_LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAAAJ0AAAAkCAIAAAAcga88AAABCGlDQ1BJQ0MgUHJvZmlsZQAAeJxjYGA8wQAELAYMDLl5JUVB7k4KEZFRCuwPGBiBEAwSk4sLGHADoKpv1yBqL+viUYcLcKakFicD6Q9ArFIEtBxopAiQLZIOYWuA2EkQtg2IXV5SUAJkB4DYRSFBzkB2CpCtkY7ETkJiJxcUgdT3ANk2uTmlyQh3M/Ck5oUGA2kOIJZhKGYIYnBncAL5H6IkfxEDg8VXBgbmCQixpJkMDNtbGRgkbiHEVBYwMPC3MDBsO48QQ4RJQWJRIliIBYiZ0tIYGD4tZ2DgjWRgEL7AwMAVDQsIHG5TALvNnSEfCNMZchhSgSKeDHkMyQx6QJYRgwGDIYMZAKbWPz9HbOBQAAAAJ0lEQVR4nO3BAQ0AAADCoPdPbQ8HFAAAAAAAAAAAAAAAAAAAAADPBkJgAAGHsLvOAAAAAElFTkSuQmCC"
         try:
-            base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-            gh_ico_path = os.path.join(base, "GitHub_Lockup_Black.ico")
-            gh_img = tk.PhotoImage(file=gh_ico_path)
-            # 適切なサイズに縮小（元画像が大きい場合）
+            gh_img = tk.PhotoImage(data=_GH_LOGO_B64)
             gh_btn = tk.Button(
                 gh_frame,
                 image=gh_img,
@@ -632,20 +630,10 @@ class App(tk.Tk):
                 relief="flat", cursor="hand2",
                 bd=0, padx=8, pady=4
             )
-            gh_btn.image = gh_img  # 参照を保持（GC対策）
+            gh_btn.image = gh_img  # GC対策
             gh_btn.pack()
         except Exception:
-            # 画像読み込み失敗時はテキストボタンにフォールバック
-            tk.Button(
-                gh_frame,
-                text="GitHub でソースを見る",
-                command=lambda: webbrowser.open("https://github.com/29kiyo/MC-Pack-Updater"),
-                bg="#24292e", fg="#ffffff",
-                activebackground="#444d56", activeforeground="#ffffff",
-                font=("Yu Gothic UI", 10, "bold"),
-                relief="flat", cursor="hand2",
-                padx=16, pady=8
-            ).pack()
+            pass
 
     def _show_toast(self, message):
         """アプリ右下にトースト通知を表示する"""
@@ -661,7 +649,7 @@ class App(tk.Tk):
         toast.configure(bg=t["BG3"])
         if self._icon_path:
             try: toast.iconbitmap(self._icon_path)
-            except Exception: pass
+            except Exception: pass  # アイコン設定失敗はUIに影響しないため無視
         self._toast_win = toast
 
         # 内容
@@ -1083,7 +1071,7 @@ class App(tk.Tk):
         win.title("API Key 取得方法"); win.configure(bg=BG)
         if self._icon_path:
             try: win.iconbitmap(self._icon_path)
-            except Exception: pass
+            except Exception: pass  # アイコン設定失敗はUIに影響しないため無視
         self.update_idletasks()
         mw,mh,mx,my = self.winfo_width(),self.winfo_height(),self.winfo_x(),self.winfo_y()
         ww,wh = int(mw*2/3), int(mh*2/3)
@@ -1287,9 +1275,9 @@ class App(tk.Tk):
                                                 if m.get("mod_id") == slug and fn != df:
                                                     self._log(f"  🔗 バージョン不足のため差し替え: {fn}","warn",key)
                                                     try: os.remove(fp)
-                                                    except Exception: pass
+                                                    except Exception: pass  # 削除失敗は後続処理に影響しないため無視
                                                     break
-                                        except Exception: pass
+                                        except Exception: pass  # 依存関係解決の失敗は後続処理に影響しないため無視
                                 else:
                                     vs = mr_get_versions(dep_pid, mc_ver, loader)
                                     if vs: du, df = mr_best_file(vs[0])
@@ -1313,7 +1301,7 @@ class App(tk.Tk):
                 self._log("  ❌ スキップ（対応バージョンなし）","err",key)
                 if delete_fail and mr_type == MR_MOD and item.get("path") and os.path.exists(item["path"]):
                     try: os.remove(item["path"]); self._log(f"  🗑 失敗ファイル削除: {item['filename']}","warn",key)
-                    except Exception: pass
+                    except Exception: pass  # 削除失敗は処理継続に影響しないため無視
             self._set_progress(i+1)
 
         total_ok   = sum(len(v["ok"])   for v in results.values())
@@ -1360,10 +1348,10 @@ class App(tk.Tk):
             self._log(f"  ❌ DL失敗: {e}","err",log_key)
             if os.path.exists(dest):
                 try: os.remove(dest)
-                except Exception: pass
+                except Exception: pass  # 一時ファイル削除失敗は無視
             if delete_fail and old_path and os.path.exists(old_path):
                 try: os.remove(old_path); self._log(f"  🗑 失敗ファイル削除: {os.path.basename(old_path)}","warn",log_key)
-                except Exception: pass
+                except Exception: pass  # 削除失敗は処理継続に影響しないため無視
             return False
 
     def _fetch_versions_bg(self):
