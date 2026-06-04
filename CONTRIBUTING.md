@@ -96,19 +96,27 @@ MC-Pack-Updater/
 バックアップモードは **全体設定タブ** で管理される全体設定です。
 
 - 設定値は `App.backup_mode`（`BooleanVar`）・`App.backup_dir`（`StringVar`）で保持。
-- `mod_updater.py` の `_worker` では `_backup_ts`（実行開始時のタイムスタンプ）を一度だけ生成し、
-  同一実行内の全タイプ（mods / resourcepacks / shaderpacks）で共有します。
-- `plugin_updater.py` の `_worker` では `parent_app.backup_mode` / `parent_app.backup_dir` / `parent_app.target_version` を参照してバックアップフォルダを決定します。
+- `mod_updater.py` の `_worker` では `_backup_ts`（実行開始時のタイムスタンプ）を一度だけ生成し、同一実行内の全タイプで共有します。
+- 単体アップデート（`_start_panel`）時は `single_type` フラグが渡され、子フォルダなしで `v{ver}_{種類}_{ts}` 直下に出力します。一括アップデート（`_start_all`）時は `v{ver}_{ts}/mods|resourcepacks|shaderpacks` のサブフォルダ構造になります。
+- `plugin_updater.py` の `_worker` では `parent_app.backup_mode` / `parent_app.backup_dir` を参照し、`plugin_{ts}` フォルダ直下に出力します。
 - バックアップモードON時は `delete_old` / `delete_failed` / `old_path` をすべて無効化し、元ファイルへの変更を一切行いません。
 
 出力フォルダ構造：
 ```
 [出力先]/
-  └─ v{MCバージョン}_{YYYY-MM-DD}_{HH-MM-SS}/
-       ├─ mods
-       ├─ resourcepacks
-       ├─ shaderpacks
-       └─ plugins
+  # 単体アップデート時（種類ごとに個別実行）
+  ├─ v{MCバージョン}_mod_{YYYY-MM-DD}_{HH-MM-SS}/     ← Mod 単体（直下に出力）
+  ├─ v{MCバージョン}_rp_{YYYY-MM-DD}_{HH-MM-SS}/      ← ResourcePack 単体（直下に出力）
+  ├─ v{MCバージョン}_shader_{YYYY-MM-DD}_{HH-MM-SS}/  ← Shader 単体（直下に出力）
+
+  # 一括アップデート時（「全て一括アップデート」実行）
+  ├─ v{MCバージョン}_{YYYY-MM-DD}_{HH-MM-SS}/         ← Mod / ResourcePack / Shader 一括
+  │    ├─ mods
+  │    ├─ resourcepacks
+  │    └─ shaderpacks
+
+  # Plugin（常に直下に出力）
+  └─ plugin_{YYYY-MM-DD}_{HH-MM-SS}/
 ```
 
 ---
