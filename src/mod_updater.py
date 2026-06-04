@@ -1107,6 +1107,8 @@ class App(tk.Tk):
         self._cancel_flag = True
         self._set_status("中止中...")
         self._cancel_btn.config(state="disabled")
+        if hasattr(self, "_plugin_app") and self._plugin_app:
+            self._plugin_app._cancel()
 
     def _disable_combobox_wheel(self):
         def _block(e): return "break"
@@ -1393,9 +1395,10 @@ class App(tk.Tk):
                                                 if m.get("mod_id") == slug and fn != df:
                                                     self._log(f"  🔗 バージョン不足のため差し替え: {fn}","warn",key)
                                                     try: os.remove(fp)
-                                                    except Exception: pass
+                                                    except Exception:  # 削除失敗は差し替え処理継続に影響しないため無視
+                                                        pass
                                                     break
-                                        except Exception: pass
+                                        except Exception: pass  # 依存関係解決の失敗は後続処理に影響しないため無視
                                 else:
                                     vs = mr_get_versions(dep_pid, mc_ver, loader)
                                     if vs: du, df = mr_best_file(vs[0])
@@ -1419,7 +1422,8 @@ class App(tk.Tk):
                 self._log("  ❌ スキップ（対応バージョンなし）","err",key)
                 if delete_fail and not backup_on and mr_type == MR_MOD and item.get("path") and os.path.exists(item["path"]):
                     try: os.remove(item["path"]); self._log(f"  🗑 失敗ファイル削除: {item['filename']}","warn",key)
-                    except Exception: pass
+                    except Exception:  # 削除失敗は処理継続に影響しないため無視
+                        pass
             self._set_progress(i+1)
 
         total_ok   = sum(len(v["ok"])   for v in results.values())

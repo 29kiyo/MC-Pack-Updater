@@ -58,14 +58,14 @@ def load_config():
     try:
         with open(CONFIG_FILE, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception:  # 設定ファイルが存在しない・壊れている場合は空dictを返す
         return {}
 
 def save_config(data):
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception:
+    except Exception:  # 設定保存失敗は起動に影響しないため無視
         pass
 
 def http_get(url):
@@ -117,7 +117,7 @@ def read_jar_meta(jar_path):
                     elif line.startswith("depend:"):
                         ds = line.split(":", 1)[1].strip().strip("[]")
                         info["depend"] = [d.strip().strip('"\'') for d in ds.split(",") if d.strip()]
-    except Exception:
+    except Exception:  # ZIPの読み込み失敗時はファイル名から推測したinfoを返す
         pass
     return info
 
@@ -138,7 +138,7 @@ def mr_search_plugin(name):
             if h.get("title", "").lower() == name_l:
                 return h["project_id"]
         return hits[0]["project_id"]
-    except Exception:
+    except Exception:  # API取得失敗時はNoneを返し呼び出し元でスキップ
         return None
 
 def mr_get_plugin_versions(pid):
@@ -147,7 +147,7 @@ def mr_get_plugin_versions(pid):
             "loaders": json.dumps(["paper", "spigot", "bukkit", "purpur", "folia", "waterfall", "velocity"]),
         })
         return http_get(f"{MODRINTH_API}/project/{pid}/version?{params}")
-    except Exception:
+    except Exception:  # API取得失敗時は空リストを返す
         return []
 
 def mr_best_file(vo):
@@ -436,7 +436,7 @@ class PluginUpdaterApp(ttk.Frame):
         for widget, color_key, attr in self._tk_widgets:
             try:
                 widget.config(**{attr: t[color_key]})
-            except Exception:
+            except Exception:  # 破棄済みウィジェットへのアクセスは無視
                 pass
 
         # 2) ログボックス本体 と ScrolledText.frame（外側tk.Frame）
@@ -575,7 +575,7 @@ class PluginUpdaterApp(ttk.Frame):
                 if pid:
                     vs = mr_get_plugin_versions(pid)
                     results = [{"label": v.get("version_number", "?"), "id": v["id"]} for v in vs]
-            except Exception:
+            except Exception:  # バージョン取得失敗時は空リストのままコールバックを呼ぶ
                 pass
             self.after(0, lambda r=results: self._update_ver_combo(r))
 
@@ -763,7 +763,7 @@ class PluginUpdaterApp(ttk.Frame):
                     try:
                         os.remove(plugin["path"])
                         self._log("  🗑 失敗ファイル削除", "warn")
-                    except Exception:
+                    except Exception:  # 削除失敗は処理継続に影響しないため無視
                         pass
 
             self._set_progress(i + 1)
@@ -805,13 +805,13 @@ class PluginUpdaterApp(ttk.Frame):
             if os.path.exists(dest):
                 try:
                     os.remove(dest)
-                except Exception:
+                except Exception:  # 一時ファイル削除失敗は無視
                     pass
             if delete_fail and old_path and os.path.exists(old_path):
                 try:
                     os.remove(old_path)
                     self._log("  🗑 失敗ファイル削除", "warn")
-                except Exception:
+                except Exception:  # 削除失敗は処理継続に影響しないため無視
                     pass
             return False
 
@@ -845,7 +845,7 @@ class StandaloneApp(tk.Tk):
         try:
             import ctypes
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("MCPluginUpdater.App.1.0")
-        except Exception:
+        except Exception:  # Windows専用API。非Windows環境では失敗するが問題なし
             pass
 
         try:
@@ -854,7 +854,7 @@ class StandaloneApp(tk.Tk):
             self._icon_path = ip if os.path.exists(ip) else None
             if self._icon_path:
                 self.iconbitmap(default=self._icon_path)
-        except Exception:
+        except Exception:  # アイコン設定失敗はUIに影響しないため無視
             self._icon_path = None
 
         self._apply_style()
