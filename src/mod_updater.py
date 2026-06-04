@@ -762,9 +762,9 @@ class App(tk.Tk):
         # 個別フォルダ
         lf1 = ttk.LabelFrame(f, text="📁  個別フォルダ指定"); lf1.pack(fill="x", **PAD)
         for lbl, var, load_cmd, upd_cmd in [
-            ("🧩 Mods",         self.mods_dir,   self._load_mods,   lambda: self._start_panel(self._mod_panel,   "Mod")),
-            ("🎨 ResourcePacks", self.rp_dir,     self._load_rp,     lambda: self._start_panel(self._rp_panel,    "ResourcePack")),
-            ("✨ Shaders",       self.shader_dir, self._load_shader, lambda: self._start_panel(self._shader_panel,"Shader")),
+            ("🧩 Mods",         self.mods_dir,   self._load_mods,   lambda: self._start_panel(self._mod_panel,    "Mod",          "mod")),
+            ("🎨 ResourcePacks", self.rp_dir,     self._load_rp,     lambda: self._start_panel(self._rp_panel,     "ResourcePack", "rp")),
+            ("✨ Shaders",       self.shader_dir, self._load_shader, lambda: self._start_panel(self._shader_panel, "Shader",       "shader")),
         ]:
             row = ttk.Frame(lf1); row.pack(fill="x", padx=10, pady=3)
             ttk.Label(row, text=lbl, width=18).pack(side="left")
@@ -878,9 +878,9 @@ class App(tk.Tk):
         self._inner_nb = inner_nb
 
         for attr, mr_type, lbl, log_key, load_fn, upd_fn in [
-            ("_mod_panel",    MR_MOD,   "🧩 Mod",         "mod",    self._load_mods,   lambda: self._start_panel(self._mod_panel,   "Mod")),
-            ("_rp_panel",     MR_RP,    "🎨 ResourcePack", "rp",     self._load_rp,     lambda: self._start_panel(self._rp_panel,    "ResourcePack")),
-            ("_shader_panel", MR_SHADE, "✨ Shader",        "shader", self._load_shader, lambda: self._start_panel(self._shader_panel,"Shader")),
+            ("_mod_panel",    MR_MOD,   "🧩 Mod",         "mod",    self._load_mods,   lambda: self._start_panel(self._mod_panel,    "Mod",          "mod")),
+            ("_rp_panel",     MR_RP,    "🎨 ResourcePack", "rp",     self._load_rp,     lambda: self._start_panel(self._rp_panel,     "ResourcePack", "rp")),
+            ("_shader_panel", MR_SHADE, "✨ Shader",        "shader", self._load_shader, lambda: self._start_panel(self._shader_panel, "Shader",       "shader")),
         ]:
             tab = ttk.Frame(inner_nb)
             inner_nb.add(tab, text=f" {lbl} ")
@@ -1270,19 +1270,19 @@ class App(tk.Tk):
             tasks.append((it, dir_map[panel.mr_type], panel.mr_type, cf_class))
         return tasks
 
-    def _start_panel(self, panel, label):
+    def _start_panel(self, panel, label, single_type_key=None):
         if not self._validate_cf(): return
         tasks = self._build_tasks(panel)
         if not tasks: messagebox.showinfo("情報","アイテムが選択されていません"); return
-        self._run_tasks(tasks)
+        self._run_tasks(tasks, single_type=single_type_key)
 
     def _start_all(self):
         if not self._validate_cf(): return
         tasks = self._build_tasks(self._mod_panel) + self._build_tasks(self._rp_panel) + self._build_tasks(self._shader_panel)
         if not tasks: messagebox.showinfo("情報","アイテムが選択されていません"); return
-        self._run_tasks(tasks)
+        self._run_tasks(tasks, single_type=None)
 
-    def _run_tasks(self, tasks):
+    def _run_tasks(self, tasks, single_type=None):
         if self._running: messagebox.showwarning("実行中","現在アップデート中です"); return
         self._running = True; self._cancel_flag = False
         self._set_progress(0, len(tasks)); self._nb.select(2)
@@ -1294,10 +1294,10 @@ class App(tk.Tk):
         self.after(0, _enable_cancel)
         threading.Thread(target=self._worker,
                           args=(tasks, self.target_version.get(), self.target_loader.get(),
-                                self.dl_mode.get(), self.cf_api_key.get().strip()),
+                                self.dl_mode.get(), self.cf_api_key.get().strip(), single_type),
                           daemon=True).start()
 
-    def _worker(self, tasks, mc_ver, loader, mode, cf_key):
+    def _worker(self, tasks, mc_ver, loader, mode, cf_key, single_type=None):
         delete_old   = self.delete_old.get()
         delete_fail  = self.delete_failed.get()
         auto_deps    = self.auto_deps.get()
@@ -1313,13 +1313,21 @@ class App(tk.Tk):
         _backup_subdirs = {}  # key -> 実際の出力先フォルダ（初回アクセス時に作成）
 
         def _resolve_out_dir(key, original_dir):
-            """バックアップモードONのときは専用サブフォルダを返す"""
+            """バックアップモードONのときは専用フォルダを返す。
+            単体（single_type指定あり）: v{ver}_{type}_{ts} 直下（子フォルダなし）
+            複数（single_type=None）  : v{ver}_{ts}/{type} サブフォルダあり
+            """
             if not backup_on:
                 return original_dir
             if key not in _backup_subdirs:
-                sub_map = {"mod": "mods", "rp": "resourcepacks", "shader": "shaderpacks", "plugin": "plugins"}
-                parent  = os.path.join(backup_base, f"v{mc_ver}_{_backup_ts}")
-                out     = os.path.join(parent, sub_map.get(key, key))
+                if single_type is not None:
+                    # 単体: 子フォルダなし
+                    out = os.path.join(backup_base, f"v{mc_ver}_{single_type}_{_backup_ts}")
+                else:
+                    # 複数: 種類ごとサブフォルダ
+                    sub_map = {"mod": "mods", "rp": "resourcepacks", "shader": "shaderpacks"}
+                    parent  = os.path.join(backup_base, f"v{mc_ver}_{_backup_ts}")
+                    out     = os.path.join(parent, sub_map.get(key, key))
                 os.makedirs(out, exist_ok=True)
                 _backup_subdirs[key] = out
             return _backup_subdirs[key]
@@ -1332,7 +1340,10 @@ class App(tk.Tk):
                     "全体設定タブで有効なフォルダを指定してください。"))
                 self._running = False
                 return
-            self._log(f"💾 バックアップモード ON → v{mc_ver}_{_backup_ts}/", "info", "sys")
+            if single_type is not None:
+                self._log(f"💾 バックアップモード ON → v{mc_ver}_{single_type}_{_backup_ts}/", "info", "sys")
+            else:
+                self._log(f"💾 バックアップモード ON → v{mc_ver}_{_backup_ts}/", "info", "sys")
 
         for i, (item, out_dir, mr_type, cf_class) in enumerate(tasks):
             if self._cancel_flag:

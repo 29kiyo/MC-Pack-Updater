@@ -711,10 +711,9 @@ class PluginUpdaterApp(ttk.Frame):
                     "全体設定タブで有効なフォルダを指定してください。"))
                 self._running = False
                 return
-            mc_ver = app.target_version.get() if hasattr(app, "target_version") else "unknown"
-            _backup_dir = os.path.join(backup_base, f"v{mc_ver}_{_backup_ts}", "plugins")
+            _backup_dir = os.path.join(backup_base, f"plugin_{_backup_ts}")
             os.makedirs(_backup_dir, exist_ok=True)
-            self._log(f"💾 バックアップモード ON → v{mc_ver}_{_backup_ts}/plugins", "info")
+            self._log(f"💾 バックアップモード ON → plugin_{_backup_ts}", "info")
 
         def _resolve_out(filename):
             """バックアップONのときはバックアップフォルダ、OFFは通常フォルダ"""
