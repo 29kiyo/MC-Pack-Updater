@@ -90,6 +90,33 @@ MC-Pack-Updater/
 - **`plugin_updater.py`** ― プラグインタブの実装。EXE ビルド時に
   `--add-data` でバンドルされ、`mod_updater.py` から動的に読み込まれる。
   埋め込み時は `parent_app` 経由で `mod_updater.py` の進捗バー・中止ボタンを共有する。
+  タブ構成: ⚙ 設定 / 🔌 プラグイン一覧 / 🔍 検査 / 📋 ログ。
+
+### Plugin Loader選択の仕組み
+
+`PLUGIN_LOADERS` 定数（ファイル先頭）でローダー名とModrinth APIに渡す `loaders` リストのペアを管理しています。
+
+```python
+PLUGIN_LOADERS = [
+    ("すべて（自動）", [...]),      # Plugin Loader + プロキシ全種
+    ("Plugin Loader（すべて）", [...]),  # Plugin Loader系のみ
+    ("プロキシ（すべて）", [...]),       # プロキシ系のみ
+    # 個別・複合エントリ...
+]
+```
+
+- `PLUGIN_LOADER_NAMES` / `PLUGIN_LOADER_MAP` で名前→loadersリストに変換。
+- 「すべて（自動）」選択時はPlugin Loader用とプロキシ用が混在する可能性を設定画面で警告します。
+- 新しいエントリを追加する場合は `PLUGIN_LOADERS` リストのみ編集してください。
+
+### 検査タブの仕組み
+
+`PluginUpdaterApp._build_inspect` / `_inspect_worker` で実装。
+
+- JAR を読み込み → `read_jar_meta` でプラグイン名を取得 → Modrinth API で全対応loaderを取得。
+- `_PLUGIN_LOADERS`（spigot/bukkit/paper等）と `_PROXY_LOADERS`（velocity/bungeecord等）の集合演算で判定。
+- 判定結果: ✅ Plugin Loader専用 / 🔷 プロキシ専用 / ⚠ 混在 / ❌ 不明。
+- Treeviewのタグ色はテーマ切り替え時に `_refresh_inspect_tags` で更新。
 
 ### バックアップモードの仕組み
 
@@ -152,6 +179,8 @@ pyinstaller --onedir --windowed --noupx --name "MC-Pack-Updater" `
 # ZIP化
 Compress-Archive -Path dist\MC-Pack-Updater -DestinationPath dist\MC-Pack-Updater.zip
 ```
+
+> **現在のバージョン: v1.3.0**
 
 ### onefile（単体 EXE）
 
@@ -253,3 +282,5 @@ for h in result["hits"]:
 - `plugin_updater.py` の `PluginUpdaterApp` は埋め込み時に `parent_app` 引数で `mod_updater.py` の `App` インスタンスを受け取ります。
   進捗バー・中止ボタン・バックアップモード設定など共有リソースはすべて `parent_app` 経由でアクセスしてください。
   `parent_app` が `None`（スタンドアロン起動）のケースも考慮し、`hasattr` でガードを入れてください。
+- **静的解析:** `pyflakes src/plugin_updater.py` および `pyflakes src/mod_updater.py` がエラーなしで通ることを確認してください。
+  PR 前に必ず実行してください（`pip install pyflakes`）。

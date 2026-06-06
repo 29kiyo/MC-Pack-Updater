@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 1, 0, 0),
-    prodvers=(1, 1, 0, 0),
+    filevers=(1, 3, 0, 0),
+    prodvers=(1, 3, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -16,12 +16,12 @@ VSVersionInfo(
         [
           StringStruct(u'CompanyName',      u'MC Pack Updater'),
           StringStruct(u'FileDescription',  u'Minecraft Mod / ResourcePack / Shader Updater'),
-          StringStruct(u'FileVersion',      u'1.1.0'),
+          StringStruct(u'FileVersion',      u'1.3.0'),
           StringStruct(u'InternalName',     u'MC-Pack-Updater'),
           StringStruct(u'LegalCopyright',   u'Copyright 2026 29kiyo'),
           StringStruct(u'OriginalFilename', u'MC-Pack-Updater.exe'),
           StringStruct(u'ProductName',      u'MC Pack Updater'),
-          StringStruct(u'ProductVersion',   u'1.1.0'),
+          StringStruct(u'ProductVersion',   u'1.3.0'),
         ]
       )
     ]),

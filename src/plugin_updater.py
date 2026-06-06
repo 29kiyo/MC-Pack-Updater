@@ -5,6 +5,32 @@ import urllib.request, urllib.parse
 MODRINTH_API = "https://api.modrinth.com/v2"
 CONFIG_FILE  = os.path.join(os.path.expanduser("~"), ".mc_pack_updater_config.json")
 
+# プラグインローダー選択肢
+# (表示名, Modrinth loaders リスト)
+PLUGIN_LOADERS = [
+    ("すべて（自動）",          ["spigot", "bukkit", "paper", "purpur",
+                                 "sponge", "bungeecord", "bungee", "waterfall", "velocity"]),
+    ("Plugin Loader（すべて）", ["spigot", "bukkit", "paper", "purpur", "folia", "sponge"]),
+    ("プロキシ（すべて）",      ["bungeecord", "bungee", "waterfall", "velocity"]),
+    # ── 複合 ──
+    ("Spigot / Bukkit",         ["spigot", "bukkit"]),
+    ("Paper / Purpur",          ["paper", "purpur"]),
+    ("Spigot / Paper",          ["spigot", "paper"]),
+    # ── ローダー ──
+    ("Bukkit",                  ["bukkit"]),
+    ("Folia",                   ["folia"]),
+    ("Paper",                   ["paper"]),
+    ("Purpur",                  ["purpur"]),
+    ("Spigot",                  ["spigot"]),
+    ("Sponge",                  ["sponge"]),
+    # ── プラットフォーム（プロキシ）──
+    ("BungeeCord",              ["bungeecord", "bungee", "waterfall"]),
+    ("Velocity",                ["velocity"]),
+    ("Waterfall",               ["waterfall", "bungeecord"]),
+]
+PLUGIN_LOADER_NAMES = [entry[0] for entry in PLUGIN_LOADERS]
+PLUGIN_LOADER_MAP   = {entry[0]: entry[1] for entry in PLUGIN_LOADERS}
+
 THEMES = {
     "light": {
         "BG":       "#f4f4f0",
@@ -95,19 +121,35 @@ def clean_plugin_name(raw):
 def read_jar_meta(jar_path):
     fname     = os.path.basename(jar_path)
     base_name = clean_plugin_name(os.path.splitext(fname)[0])
-    info      = {"filename": fname, "path": jar_path, "name": base_name, "version": "", "depend": []}
+    info      = {"filename": fname, "path": jar_path, "name": base_name, "version": "", "depend": [], "loader": "unknown"}
     try:
         with zipfile.ZipFile(jar_path) as zf:
             names = zf.namelist()
+            # ── Velocity ──
             if "velocity-plugin.json" in names:
                 d = json.loads(zf.read("velocity-plugin.json").decode("utf-8", errors="ignore"))
                 info["name"]    = d.get("name") or d.get("id") or base_name
                 info["version"] = d.get("version", "")
                 info["depend"]  = list(d.get("dependencies", {}).keys())
+                info["loader"]  = "velocity"
+                return info
+            # ── Sponge ──
+            if "sponge_plugins.json" in names:
+                try:
+                    d = json.loads(zf.read("sponge_plugins.json").decode("utf-8", errors="ignore"))
+                    plugins = d.get("plugins", [d]) if isinstance(d, dict) else d
+                    if plugins:
+                        p0 = plugins[0]
+                        info["name"]    = p0.get("name") or p0.get("id") or base_name
+                        info["version"] = p0.get("version", "")
+                except Exception:
+                    pass
+                info["loader"] = "sponge"
                 return info
             yml = next((n for n in ("plugin.yml", "paper-plugin.yml", "bungee.yml") if n in names), None)
             if yml:
                 raw = zf.read(yml).decode("utf-8", errors="ignore")
+                folia_supported = False
                 for line in raw.splitlines():
                     line = line.strip()
                     if line.startswith("name:"):
@@ -117,6 +159,18 @@ def read_jar_meta(jar_path):
                     elif line.startswith("depend:"):
                         ds = line.split(":", 1)[1].strip().strip("[]")
                         info["depend"] = [d.strip().strip('"\'') for d in ds.split(",") if d.strip()]
+                    elif line.startswith("folia-supported:"):
+                        folia_supported = line.split(":", 1)[1].strip().lower() == "true"
+                if yml == "bungee.yml":
+                    # BungeeCord / Waterfall は同じ bungee.yml を使う
+                    info["loader"] = "bungeecord_waterfall"
+                elif yml == "paper-plugin.yml":
+                    # paper-plugin.yml は Paper / Folia 専用新形式
+                    info["loader"] = "paper_folia"
+                else:
+                    # plugin.yml: Bukkit / Spigot / Paper / Purpur / Folia 共通
+                    # folia-supported: true があれば Folia 対応を追記
+                    info["loader"] = "bukkit_spigot_paper" + ("+folia" if folia_supported else "")
     except Exception:  # ZIPの読み込み失敗時はファイル名から推測したinfoを返す
         pass
     return info
@@ -141,10 +195,12 @@ def mr_search_plugin(name):
     except Exception:  # API取得失敗時はNoneを返し呼び出し元でスキップ
         return None
 
-def mr_get_plugin_versions(pid):
+def mr_get_plugin_versions(pid, loaders=None):
     try:
+        if loaders is None:
+            loaders = PLUGIN_LOADER_MAP["すべて（自動）"]
         params = urllib.parse.urlencode({
-            "loaders": json.dumps(["paper", "spigot", "bukkit", "purpur", "folia", "waterfall", "velocity"]),
+            "loaders": json.dumps(loaders),
         })
         return http_get(f"{MODRINTH_API}/project/{pid}/version?{params}")
     except Exception:  # API取得失敗時は空リストを返す
@@ -159,7 +215,7 @@ def mr_best_file(vo):
             break
     return du, df
 
-def find_plugin(name, log_cb, ver_id=None):
+def find_plugin(name, log_cb, ver_id=None, loaders=None):
     try:
         pid = mr_search_plugin(name)
         if not pid:
@@ -168,7 +224,7 @@ def find_plugin(name, log_cb, ver_id=None):
         if ver_id:
             vs = [http_get(f"{MODRINTH_API}/version/{ver_id}")]
         else:
-            vs = mr_get_plugin_versions(pid)
+            vs = mr_get_plugin_versions(pid, loaders)
         if not vs:
             log_cb("  Modrinth: 対応バージョンなし", "warn")
             return None, None, None
@@ -214,6 +270,7 @@ class PluginUpdaterApp(ttk.Frame):
         self.delete_old    = tk.BooleanVar(value=cfg.get("plugin_delete_old", False))
         self.delete_failed = tk.BooleanVar(value=cfg.get("plugin_delete_failed", False))
         self.auto_deps     = tk.BooleanVar(value=cfg.get("plugin_auto_deps", True))
+        self.plugin_loader = tk.StringVar(value=cfg.get("plugin_loader", "すべて（自動）"))
 
         self.plugin_list    = []
         self._ver_overrides = {}   # filename -> {"id": ver_id, "label": str} or None
@@ -230,11 +287,13 @@ class PluginUpdaterApp(ttk.Frame):
         t_set = ttk.Frame(nb); nb.add(t_set, text=" ⚙ 設定 ")
         t_lst = ttk.Frame(nb); nb.add(t_lst, text=" 🔌 プラグイン一覧 ")
         t_log = ttk.Frame(nb); nb.add(t_log, text=" 📋 ログ ")
+        t_ins = ttk.Frame(nb); nb.add(t_ins, text=" 🔍 検査 ")
         self._nb = nb
 
         self._build_settings(t_set)
         self._build_list(t_lst)
         self._build_log(t_log)
+        self._build_inspect(t_ins)
 
     def _build_settings(self, p):
         t = THEMES[self._theme]
@@ -262,10 +321,37 @@ class PluginUpdaterApp(ttk.Frame):
             fg=t["YEL"], bg=t["BG"],
             font=("Yu Gothic UI", 9),
         )
-        dl_info.pack(anchor="w", padx=10, pady=8)
+        dl_info.pack(anchor="w", padx=10, pady=(8, 4))
         self._dl_info_label = dl_info
         self._tk_widgets.append((dl_info, "YEL", "fg"))
         self._tk_widgets.append((dl_info, "BG",  "bg"))
+
+        # Plugin Loader 選択行
+        loader_row = ttk.Frame(lf3)
+        loader_row.pack(fill="x", padx=10, pady=(0, 4))
+        ttk.Label(loader_row, text="Plugin Loader:").pack(side="left", padx=(0, 8))
+        self._loader_combo = ttk.Combobox(
+            loader_row,
+            textvariable=self.plugin_loader,
+            values=PLUGIN_LOADER_NAMES,
+            state="readonly",
+            width=22,
+        )
+        self._loader_combo.pack(side="left")
+        # マウスホイールでの誤操作を防ぐため後でまとめてバインドする
+        # （_disable_combobox_wheel が一括処理）
+
+        # すべて（自動）選択時の注意ラベル
+        self._auto_warn_label = tk.Label(
+            lf3,
+            text="  ⚠ 「すべて（自動）」はPlugin Loader用とプロキシ用が混在する場合があります",
+            fg=t["RED"], bg=t["BG"],
+            font=("Yu Gothic UI", 9),
+        )
+        self._tk_widgets.append((self._auto_warn_label, "RED", "fg"))
+        self._tk_widgets.append((self._auto_warn_label, "BG",  "bg"))
+        self._loader_combo.bind("<<ComboboxSelected>>", self._on_loader_change)
+        self._on_loader_change()  # 初期表示
 
         # オプション
         lf4 = ttk.LabelFrame(f, text="⚙  オプション")
@@ -396,6 +482,139 @@ class PluginUpdaterApp(ttk.Frame):
 
         ttk.Button(sf, text="🔄 バージョン取得", command=self._fetch_versions_side).pack(padx=8, pady=(0, 8), fill="x")
 
+    def _on_loader_change(self, e=None):
+        """「すべて（自動）」選択時のみ混在警告ラベルを表示する"""
+        if self.plugin_loader.get() == "すべて（自動）":
+            self._auto_warn_label.pack(anchor="w", padx=10, pady=(0, 8))
+        else:
+            self._auto_warn_label.pack_forget()
+
+    def _build_inspect(self, p):
+        """検査タブ: JAR を読み込み各プラグインの対応loaderをModrinthで確認する"""
+        t = THEMES[self._theme]
+
+        # ── フォルダ指定行 ──
+        top = ttk.Frame(p)
+        top.pack(fill="x", padx=10, pady=(8, 4))
+        self._inspect_dir = tk.StringVar()
+        ttk.Entry(top, textvariable=self._inspect_dir).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ttk.Button(top, text="参照", command=lambda: self._inspect_browse()).pack(side="left", padx=(0, 6))
+        ttk.Button(top, text="🔍 検査", command=self._start_inspect).pack(side="left")
+
+        # 凡例
+        legend = ttk.Frame(p)
+        legend.pack(fill="x", padx=10, pady=(0, 4))
+        for color_key, label in [("GRN", "✅ Plugin Loader（Spigot/Paper系）"),
+                                   ("ACC", "🔷 プロキシ（Velocity/BungeeCord系）"),
+                                   ("RED", "❌ 判定不明")]:
+            lbl = tk.Label(legend, text=label, fg=t[color_key], bg=t["BG"],
+                           font=("Yu Gothic UI", 8))
+            lbl.pack(side="left", padx=(0, 12))
+            self._tk_widgets.append((lbl, color_key, "fg"))
+            self._tk_widgets.append((lbl, "BG", "bg"))
+        legend_bg = legend
+        self._tk_widgets.append((legend_bg, "BG", "bg"))
+
+        # ── Treeview ──
+        cols = ("name", "loaders", "judge")
+        self._ins_tree = ttk.Treeview(p, columns=cols, show="headings", selectmode="none")
+        for cid, lbl, w, stretch in [
+            ("name",    "プラグイン名",   200, True),
+            ("loaders", "対応Loader",     280, True),
+            ("judge",   "判定",            90, False),
+        ]:
+            self._ins_tree.heading(cid, text=lbl)
+            self._ins_tree.column(cid, width=w, minwidth=60, anchor="w", stretch=stretch)
+
+        # 判定ごとのタグ色（後でテーマ更新時も _refresh_inspect_tags で再設定）
+        self._refresh_inspect_tags()
+
+        vsb = ttk.Scrollbar(p, orient="vertical", command=self._ins_tree.yview)
+        self._ins_tree.configure(yscrollcommand=vsb.set)
+        self._ins_tree.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=(0, 8))
+        vsb.pack(side="left", fill="y", pady=(0, 8), padx=(0, 10))
+
+        self._inspect_running = False
+
+    def _inspect_browse(self):
+        d = filedialog.askdirectory()
+        if d:
+            self._inspect_dir.set(d)
+
+    def _refresh_inspect_tags(self):
+        """検査Treeviewのタグ色を現在テーマで更新"""
+        t = self._t()
+        self._ins_tree.tag_configure("plugin",  foreground=t["GRN"])
+        self._ins_tree.tag_configure("proxy",   foreground=t["ACC"])
+        self._ins_tree.tag_configure("unknown", foreground=t["RED"])
+
+    def _start_inspect(self):
+        if self._inspect_running:
+            return
+        d = self._inspect_dir.get().strip()
+        if not d or not os.path.isdir(d):
+            messagebox.showerror("エラー", "有効なフォルダを指定してください")
+            return
+        jars = sorted(f for f in os.listdir(d) if f.lower().endswith(".jar"))
+        if not jars:
+            messagebox.showinfo("情報", "JARファイルが見つかりませんでした")
+            return
+        for row in self._ins_tree.get_children():
+            self._ins_tree.delete(row)
+        self._inspect_running = True
+        threading.Thread(target=self._inspect_worker, args=(d, jars), daemon=True).start()
+
+    # Plugin Loader 系とプロキシ系の識別セット
+    _PROXY_LOADERS  = {"velocity", "bungeecord_waterfall"}
+    _PLUGIN_LOADERS = {"bukkit_spigot_paper", "bukkit_spigot_paper+folia", "paper_folia", "sponge"}
+
+    def _inspect_worker(self, folder, jars):
+        for fname in jars:
+            info   = read_jar_meta(os.path.join(folder, fname))
+            name   = info.get("name", fname)
+            loader = info.get("loader", "unknown")
+
+            # 表示文字列
+            label_map = {
+                "velocity":               "Velocity",
+                "bungeecord_waterfall":   "BungeeCord / Waterfall",
+                "paper_folia":            "Paper / Folia",
+                "bukkit_spigot_paper":    "Bukkit / Spigot / Paper / Purpur",
+                "bukkit_spigot_paper+folia": "Bukkit / Spigot / Paper / Purpur / Folia",
+                "sponge":                 "Sponge",
+            }
+            loader_str = label_map.get(loader, "—")
+
+            if loader in self._PROXY_LOADERS:
+                tag = "proxy"
+            elif loader in self._PLUGIN_LOADERS:
+                tag = "plugin"
+            else:
+                tag = "unknown"
+
+            self.after(0, lambda n=name, f=fname, ls=loader_str, tg=tag:
+                       self._ins_insert(n, f, ls, tg))
+
+        self._inspect_running = False
+
+        self._inspect_running = False
+
+        self._inspect_running = False
+
+    def _ins_insert(self, name, iid, loaders_str, tag):
+        judge_map = {
+            "plugin":  "✅ Plugin Loader",
+            "proxy":   "🔷 プロキシ",
+            "unknown": "❌ 不明",
+        }
+        # iid が重複しないよう fname にサフィックスを付ける
+        safe_iid = iid + "_ins"
+        if self._ins_tree.exists(safe_iid):
+            safe_iid = iid + f"_ins_{id(name)}"
+        self._ins_tree.insert("", "end", iid=safe_iid,
+                              values=(name, loaders_str, judge_map.get(tag, tag)),
+                              tags=(tag,))
+
     def _build_log(self, p):
         t = self._t()
         self._log_box = scrolledtext.ScrolledText(
@@ -454,6 +673,9 @@ class PluginUpdaterApp(ttk.Frame):
         # 4) バージョン状態ラベルの色を現在の状態に合わせてリセット
         #    （選択中のアイテムがあれば再描画、なければニュートラル表示）
         self._refresh_ver_status_color()
+
+        # 5) 検査タブのTreeviewタグ色を更新
+        self._refresh_inspect_tags()
 
     def _refresh_ver_status_color(self):
         """バージョン状態ラベルの fg を現在テーマで正しく設定しなおす"""
@@ -573,7 +795,9 @@ class PluginUpdaterApp(ttk.Frame):
             try:
                 pid = mr_search_plugin(item.get("name", ""))
                 if pid:
-                    vs = mr_get_plugin_versions(pid)
+                    loader_name = self.plugin_loader.get()
+                    loaders = PLUGIN_LOADER_MAP.get(loader_name)
+                    vs = mr_get_plugin_versions(pid, loaders)
                     results = [{"label": v.get("version_number", "?"), "id": v["id"]} for v in vs]
             except Exception:  # バージョン取得失敗時は空リストのままコールバックを呼ぶ
                 pass
@@ -691,6 +915,8 @@ class PluginUpdaterApp(ttk.Frame):
         delete_fail = self.delete_failed.get()
         auto_deps   = self.auto_deps.get()
         out_dir     = self.plugins_dir.get()
+        loader_name = self.plugin_loader.get()
+        loaders     = PLUGIN_LOADER_MAP.get(loader_name)
         done_deps   = set()
         ok_list     = []
         fail_list   = []
@@ -731,7 +957,7 @@ class PluginUpdaterApp(ttk.Frame):
 
             def _log(msg, tag=""): self._log(msg, tag)
 
-            dl_url, dl_fname, pid = find_plugin(name, _log, ver_id)
+            dl_url, dl_fname, pid = find_plugin(name, _log, ver_id, loaders)
 
             if dl_url and dl_fname:
                 actual_dir  = _resolve_out(plugin["filename"])
@@ -739,7 +965,7 @@ class PluginUpdaterApp(ttk.Frame):
                 do_del_old  = delete_old  and not backup_on
                 do_del_fail = delete_fail and not backup_on
                 old_path    = None if backup_on else plugin.get("path")
-                if self._do_download(dl_url, dest, name, old_path, do_del_old, do_del_fail):
+                if self._do_download(dl_url, dest, name, old_path, do_del_old, do_del_fail, loader_name):
                     ok_list.append(name)
                     if auto_deps:
                         for dep_name in plugin.get("depend", []):
@@ -750,9 +976,9 @@ class PluginUpdaterApp(ttk.Frame):
                                 self._log(f"  🔗 前提プラグイン既存: {dep_name}", "ok")
                                 continue
                             self._log(f"  🔗 前提プラグイン DL: {dep_name}", "info")
-                            du, df, _ = find_plugin(dep_name, _log)
+                            du, df, _ = find_plugin(dep_name, _log, loaders=loaders)
                             if du and df and not os.path.exists(os.path.join(actual_dir, df)):
-                                self._do_download(du, os.path.join(actual_dir, df), dep_name, None, False, do_del_fail)
+                                self._do_download(du, os.path.join(actual_dir, df), dep_name, None, False, do_del_fail, loader_name)
                                 ok_list.append(f"[前提] {dep_name}")
                 else:
                     fail_list.append(name)
@@ -790,9 +1016,9 @@ class PluginUpdaterApp(ttk.Frame):
             msg += "\n\n失敗:\n" + "\n".join(f"  • {n}" for n in fail_list)
         self.after(0, lambda: messagebox.showinfo("完了", msg))
 
-    def _do_download(self, url, dest, name, old_path, delete_old, delete_fail):
+    def _do_download(self, url, dest, name, old_path, delete_old, delete_fail, loader_name="Modrinth"):
         try:
-            self._log(f"  ⬇ DL中 [Modrinth]: {os.path.basename(dest)}")
+            self._log(f"  ⬇ DL中 [{loader_name}]: {os.path.basename(dest)}")
             download_file(url, dest, lambda p: self._set_status(f"DL: {name[:18]} {p * 100:.0f}%"))
             if delete_old and old_path and os.path.exists(old_path):
                 if os.path.abspath(dest) != os.path.abspath(old_path):
@@ -824,6 +1050,7 @@ class PluginUpdaterApp(ttk.Frame):
             "plugin_delete_old":    self.delete_old.get(),
             "plugin_delete_failed": self.delete_failed.get(),
             "plugin_auto_deps":     self.auto_deps.get(),
+            "plugin_loader":        self.plugin_loader.get(),
         })
         save_config(cfg)
 
