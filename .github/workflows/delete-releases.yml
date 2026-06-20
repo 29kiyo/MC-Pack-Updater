@@ -3,6 +3,9 @@ name: Delete All Releases
 on:
   workflow_dispatch: # ブラウザから手動で実行できるようにするボタン
 
+permissions:
+  actions: write
+
 jobs:
   delete-releases:
     runs-on: ubuntu-latest
