@@ -484,8 +484,14 @@ class PluginUpdaterApp(ttk.Frame):
 
     def _on_loader_change(self, e=None):
         """「すべて」系選択時のみ混在警告ラベルを表示する"""
-        warn_targets = {"すべて（自動）", "Plugin Loader（すべて）", "プロキシ（すべて）"}
-        if self.plugin_loader.get() in warn_targets:
+        sel = self.plugin_loader.get()
+        warn_map = {
+            "すべて（自動）":          "  ⚠ Plugin Loader用とプロキシ用が混在する場合があります",
+            "Plugin Loader（すべて）": "  ⚠ 複数のPlugin Loaderが混在する場合があります",
+            "プロキシ（すべて）":      "  ⚠ 複数のプロキシ用Loaderが混在する場合があります",
+        }
+        if sel in warn_map:
+            self._auto_warn_label.config(text=warn_map[sel])
             self._auto_warn_label.pack(anchor="w", padx=10, pady=(0, 8))
         else:
             self._auto_warn_label.pack_forget()
