@@ -483,8 +483,9 @@ class PluginUpdaterApp(ttk.Frame):
         ttk.Button(sf, text="🔄 バージョン取得", command=self._fetch_versions_side).pack(padx=8, pady=(0, 8), fill="x")
 
     def _on_loader_change(self, e=None):
-        """「すべて（自動）」選択時のみ混在警告ラベルを表示する"""
-        if self.plugin_loader.get() == "すべて（自動）":
+        """「すべて」系選択時のみ混在警告ラベルを表示する"""
+        warn_targets = {"すべて（自動）", "Plugin Loader（すべて）", "プロキシ（すべて）"}
+        if self.plugin_loader.get() in warn_targets:
             self._auto_warn_label.pack(anchor="w", padx=10, pady=(0, 8))
         else:
             self._auto_warn_label.pack_forget()
