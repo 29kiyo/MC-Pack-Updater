@@ -3,6 +3,9 @@ name: Delete All Workflow Runs
 on:
   workflow_dispatch: # 手動実行ボタンを有効化
 
+permissions:
+  actions: write
+
 jobs:
   delete-runs:
     runs-on: ubuntu-latest
