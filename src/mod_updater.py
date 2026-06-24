@@ -520,15 +520,31 @@ class App(tk.Tk):
         self._toast_win       = None   # 現在表示中のトースト
         self._cf_key_showing = False
         self._running = self._cancel_flag = False
+        # Mod検索タブ用
+        self.search_dl_dir    = tk.StringVar(value=cfg.get("search_dl_dir",""))
+        self.search_version   = tk.StringVar(value=cfg.get("search_version", cfg.get("target_version","1.21.4")))
+        self.search_loader    = tk.StringVar(value=cfg.get("search_loader", cfg.get("target_loader","fabric")))
+        self.search_dl_mode   = tk.StringVar(value=cfg.get("search_dl_mode", cfg.get("dl_mode", DL_BOTH)))
+        self.search_auto_deps = tk.BooleanVar(value=cfg.get("search_auto_deps", True))
+        self.search_strict_deps = tk.BooleanVar(value=cfg.get("search_strict_deps", False))
         self._theme = cfg.get("theme", "light")
         _apply_theme_globals(self._theme)
 
         self._apply_style(); self._build_ui(); self._disable_combobox_wheel()
+
+    def _t(self):
+        """現在テーマ辞書を返す"""
+        return THEMES[self._theme]
+
+    def _tw(self, wlist, widget, *pairs):
+        """(color_key, attr) のペアを wlist に一括登録するヘルパー"""
+        for color_key, attr in pairs:
+            wlist.append((widget, color_key, attr))
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         threading.Thread(target=self._fetch_versions_bg, daemon=True).start()
 
     def _apply_style(self):
-        t = THEMES[self._theme]
+        t = self._t()
         BG, BG2, BG3 = t["BG"], t["BG2"], t["BG3"]
         FG, ACC = t["FG"], t["ACC"]
         s = ttk.Style(self); s.theme_use("clam")
@@ -579,21 +595,9 @@ class App(tk.Tk):
         self._theme_btn.grid(row=0, column=2, sticky="e")
         ttk.Label(self, text="Mod / ResourcePack / Shader を一括アップデート",
                    style="Sub.TLabel").pack(pady=(2,8))
-        self._nb = ttk.Notebook(self)
-        self._nb.pack(fill="both", expand=True, padx=12, pady=(0,4))
-        for tab, label in [(ttk.Frame(self._nb), " ⚙ 設定 "),
-                            (ttk.Frame(self._nb), " 📦 一覧 "),
-                            (ttk.Frame(self._nb), " 📋 ログ "),
-                            (ttk.Frame(self._nb), " 🔌 プラグイン "),
-                            (ttk.Frame(self._nb), " 🌐 全体設定 ")]:
-            self._nb.add(tab, text=label)
-        tabs = self._nb.tabs()
-        self._build_settings(self._nb.nametowidget(tabs[0]))
-        self._build_lists(self._nb.nametowidget(tabs[1]))
-        self._build_log(self._nb.nametowidget(tabs[2]))
-        self._build_plugin_tab(self._nb.nametowidget(tabs[3]))
-        self._build_global_settings(self._nb.nametowidget(tabs[4]))
-        bar = ttk.Frame(self); bar.pack(fill="x", padx=12, pady=(0,8))
+
+        # ── 共有プログレスバー（ウィンドウ下部）── 先にpackして残りをNotebookに
+        bar = ttk.Frame(self); bar.pack(side="bottom", fill="x", padx=12, pady=(0,8))
         self._progress   = ttk.Progressbar(bar, mode="determinate")
         self._progress.pack(side="left", fill="x", expand=True, padx=(0,10))
         self._prog_label = ttk.Label(bar, text="", width=34)
@@ -601,8 +605,47 @@ class App(tk.Tk):
         self._cancel_btn = ttk.Button(bar, text="⏹ 中止", command=self._cancel, state="disabled")
         self._cancel_btn.pack(side="left", padx=(8,0))
 
+        # ── 親Notebook（MOD / プラグイン / 全体設定） ──
+        self._nb = ttk.Notebook(self)
+        self._nb.pack(fill="both", expand=True, padx=12, pady=(0,4))
+
+        tab_mod    = ttk.Frame(self._nb)
+        tab_plugin = ttk.Frame(self._nb)
+        tab_global = ttk.Frame(self._nb)
+        self._nb.add(tab_mod,    text=" ⛏ MOD ")
+        self._nb.add(tab_plugin, text=" 🔌 プラグイン ")
+        self._nb.add(tab_global, text=" 🌐 全体設定 ")
+
+        # ── MOD 子Notebook（設定 / 一覧 / ログ / Mod検索） ──
+        self._mod_nb = ttk.Notebook(tab_mod)
+        self._mod_nb.pack(fill="both", expand=True)
+
+        t_settings = ttk.Frame(self._mod_nb)
+        t_lists    = ttk.Frame(self._mod_nb)
+        t_log      = ttk.Frame(self._mod_nb)
+        t_search   = ttk.Frame(self._mod_nb)
+        self._mod_nb.add(t_settings, text=" ⚙ 設定 ")
+        self._mod_nb.add(t_lists,    text=" 📦 一覧 ")
+        self._mod_nb.add(t_log,      text=" 📋 ログ ")
+        self._mod_nb.add(t_search,   text=" 🔍 Mod検索 ")
+
+        self._build_settings(t_settings)
+        self._build_lists(t_lists)
+        self._build_log(t_log)
+        self._build_mod_search_tab(t_search)
+
+        # プラグイン・全体設定
+        self._build_plugin_tab(tab_plugin)
+        self._build_global_settings(tab_global)
+
+    # ── MOD 子タブ切替ヘルパー ─────────────────────────────────────
+    def _mod_select(self, child_idx):
+        """MOD 親タブを前面にしてから子タブを選択するヘルパー"""
+        self._nb.select(0)
+        self._mod_nb.select(child_idx)
+
     def _build_global_settings(self, p):
-        t = THEMES[self._theme]
+        t = self._t()
         f = ttk.Frame(p); f.pack(fill="both", expand=True, padx=20, pady=16)
 
         # ── バックアップモード ──────────────────────────────────
@@ -680,7 +723,7 @@ class App(tk.Tk):
         if self._toast_win and self._toast_win.winfo_exists():
             self._toast_win.destroy()
 
-        t = THEMES[self._theme]
+        t = self._t()
         toast = tk.Toplevel(self)
         toast.overrideredirect(True)   # タイトルバーなし
         toast.attributes("-topmost", True)
@@ -737,7 +780,7 @@ class App(tk.Tk):
         return out
 
     def _build_settings(self, p):
-        t = THEMES[self._theme]
+        t = self._t()
         # 設定タブはスクロール不要のためFrameを使用
         outer = ttk.Frame(p)
         outer.pack(fill="both", expand=True)
@@ -877,10 +920,10 @@ class App(tk.Tk):
         inner_nb.pack(fill="both", expand=True)
         self._inner_nb = inner_nb
 
-        for attr, mr_type, lbl, log_key, load_fn, upd_fn in [
-            ("_mod_panel",    MR_MOD,   "🧩 Mod",         "mod",    self._load_mods,   lambda: self._start_panel(self._mod_panel,    "Mod",          "mod")),
-            ("_rp_panel",     MR_RP,    "🎨 ResourcePack", "rp",     self._load_rp,     lambda: self._start_panel(self._rp_panel,     "ResourcePack", "rp")),
-            ("_shader_panel", MR_SHADE, "✨ Shader",        "shader", self._load_shader, lambda: self._start_panel(self._shader_panel, "Shader",       "shader")),
+        for attr, mr_type, lbl, log_key, load_fn, upd_fn, export_key in [
+            ("_mod_panel",    MR_MOD,   "🧩 Mod",         "mod",    self._load_mods,   lambda: self._start_panel(self._mod_panel,    "Mod",          "mod"),    "mod"),
+            ("_rp_panel",     MR_RP,    "🎨 ResourcePack", "rp",     self._load_rp,     lambda: self._start_panel(self._rp_panel,     "ResourcePack", "rp"),     "resourcepack"),
+            ("_shader_panel", MR_SHADE, "✨ Shader",        "shader", self._load_shader, lambda: self._start_panel(self._shader_panel, "Shader",       "shader"), "shader"),
         ]:
             tab = ttk.Frame(inner_nb)
             inner_nb.add(tab, text=f" {lbl} ")
@@ -892,20 +935,13 @@ class App(tk.Tk):
             panel.pack(fill="both", expand=True)
             setattr(self, attr, panel)
 
-            # ── プログレスバー＋中止ボタン ─────────────────────────────
+            # エクスポートボタン（タブ下部）
             bar = ttk.Frame(tab)
             bar.pack(fill="x", padx=4, pady=(0, 4))
-            prog = ttk.Progressbar(bar, mode="determinate")
-            prog.pack(side="left", fill="x", expand=True, padx=(0, 6))
-            prog_lbl = ttk.Label(bar, text="", width=28)
-            prog_lbl.pack(side="left")
-            cancel_btn = ttk.Button(bar, text="⏹ 中止", command=self._cancel, state="disabled", width=7)
-            cancel_btn.pack(side="left", padx=(4, 0))
+            ttk.Button(bar, text="📤 リスト出力",
+                       command=lambda p=panel, k=export_key: self._export_list(p, k),
+                       width=11).pack(side="left")
 
-            # パネルごとの進捗ウィジェットを panel に持たせる
-            panel._mini_progress   = prog
-            panel._mini_prog_label = prog_lbl
-            panel._mini_cancel_btn = cancel_btn
 
     def _make_ver_fetch_fn(self, mr_type):
         """バージョン取得関数を生成して返す"""
@@ -976,10 +1012,6 @@ class App(tk.Tk):
     def _set_status(self, msg):
         def _do():
             self._prog_label.config(text=msg)
-            # 現在アクティブなパネルのミニラベルにも反映
-            for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
-                if hasattr(panel, "_mini_prog_label"):
-                    panel._mini_prog_label.config(text=msg)
         self.after(0, _do)
 
     def _set_progress(self, v, maximum=None):
@@ -987,13 +1019,683 @@ class App(tk.Tk):
             if maximum is not None:
                 self._progress.configure(maximum=maximum)
             self._progress.configure(value=v)
-            # アクティブパネルのミニバーにも反映
-            for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
-                if hasattr(panel, "_mini_progress"):
-                    if maximum is not None:
-                        panel._mini_progress.configure(maximum=maximum)
-                    panel._mini_progress.configure(value=v)
         self.after(0, _do)
+
+    # ══════════════════════════════════════════════════════════════
+    # Mod検索タブ（子タブ構成：設定 / 一覧 / ログ）
+    # ══════════════════════════════════════════════════════════════
+    def _build_mod_search_tab(self, p):
+        """「🔍 Mod検索」タブ ― 子Notebookで 設定/一覧/ログ に分割"""
+        self._search_tk_widgets  = []
+        self._search_running     = False
+        self._search_cancel_flag = False
+        self._search_items       = []   # {"iid","name","status","ver_override":None}
+        self._search_ver_cache   = {}   # iid -> [{"label","id"}, ...]
+        self._search_cur_iid     = None
+
+        # 子Notebook
+        snb = ttk.Notebook(p)
+        snb.pack(fill="both", expand=True)
+        self._search_nb = snb
+
+        t_cfg = ttk.Frame(snb); snb.add(t_cfg, text=" ⚙ 設定 ")
+        t_lst = ttk.Frame(snb); snb.add(t_lst, text=" 📋 一覧 ")
+        t_log = ttk.Frame(snb); snb.add(t_log, text=" 📄 ログ ")
+
+        self._search_build_settings(t_cfg)
+        self._search_build_list(t_lst)
+        self._search_build_log(t_log)
+
+    # ── 設定タブ ──────────────────────────────────────────────────
+    def _search_build_settings(self, p):
+        t = self._t()
+        f = ttk.Frame(p); f.pack(fill="both", expand=True, padx=2, pady=2)
+        PAD = dict(padx=14, pady=(0,8))
+
+        # ── Mod名入力 / ファイル読み込み ──
+        lf_input = ttk.LabelFrame(f, text="🔍  Mod名入力 / ファイル読み込み")
+        lf_input.pack(fill="x", padx=14, pady=(8,8))
+
+        # プレースホルダーテキスト（入力欄の上に説明として表示する別ラベル方式）
+        ph_lbl = tk.Label(lf_input,
+            text=(
+                "【入力方法】 Mod名（またはModrinth/CurseForgeのスラッグID）をカンマ（,）または改行で区切って入力してください。\n"
+                "  ・Mod名にスペースが含まれる場合は正確に入力してください。\n"
+                "    例: Fabric API → 「Fabric API」 (スペースあり) ／ sodium → 「sodium」 (スペースなし)\n"
+                "  ・スラッグIDが分かる場合はそちらが確実です。\n"
+                "    例: fabric-api, sodium, lithium, iris, modmenu\n"
+                "  ・ファイルから読み込む場合は下のボタンを使用してください。"
+            ),
+            fg=t["ACC"], bg=t["BG2"],
+            font=("Yu Gothic UI",8), anchor="w", justify="left",
+            padx=8, pady=4)
+        ph_lbl.pack(fill="x", padx=8, pady=(6,2))
+        self._tw(self._search_tk_widgets, (ph_lbl, "ACC", "fg"))
+        self._tw(self._search_tk_widgets, (ph_lbl, "BG2", "bg"))
+
+        self._search_input = scrolledtext.ScrolledText(
+            lf_input,
+            bg=t["LOG"], fg=t["FG"],
+            selectbackground=t["SEL"], selectforeground=t["SEL_FG"],
+            insertbackground=t["FG"],
+            font=("Yu Gothic UI",10), relief="flat", height=4, wrap="word"
+        )
+        self._search_input.frame.configure(background=t["LOG"])
+        self._tw(self._search_tk_widgets, (self._search_input.frame, "LOG", "bg"))
+        self._search_input.pack(fill="x", padx=8, pady=(0,4))
+        self._search_ph_active = False  # 専用ラベル方式なのでプレースホルダーは使わない
+
+        file_row = ttk.Frame(lf_input); file_row.pack(fill="x", padx=8, pady=(0,4))
+        ttk.Button(file_row, text="📄 .txt/.csv 読込", command=self._search_load_txt).pack(side="left", padx=(0,4))
+        ttk.Button(file_row, text="📋 .json 読込",     command=self._search_load_json).pack(side="left", padx=(0,4))
+        ttk.Button(file_row, text="🗑 クリア",          command=self._search_clear_input).pack(side="left", padx=(0,4))
+        ttk.Button(file_row, text="📋 リストに追加",    command=self._search_add_to_list).pack(side="left")
+
+        note_lbl = tk.Label(lf_input,
+            text=(
+                "  ℹ ファイル対応: .txt（カンマ区切り / 1行1Mod）/ .csv（同左）"
+                " / .json（文字列配列 / {\"mods\":[...]} / オブジェクトのキーをMod名として使用）"
+            ),
+            fg=t["YEL"], bg=t["BG"], font=("Yu Gothic UI",8), anchor="w", justify="left")
+        note_lbl.pack(fill="x", padx=8, pady=(0,6))
+        self._tw(self._search_tk_widgets, (note_lbl, "YEL", "fg"))
+        self._tw(self._search_tk_widgets, (note_lbl, "BG",  "bg"))
+
+        # ── ダウンロード設定 ──
+        mid_row = ttk.Frame(f); mid_row.pack(fill="x", **PAD)
+        mid_row.columnconfigure(0, weight=1); mid_row.columnconfigure(1, weight=1)
+
+        lf_dl = ttk.LabelFrame(mid_row, text="🎯  ダウンロード先・バージョン")
+        lf_dl.grid(row=0, column=0, sticky="nsew", padx=(0,6))
+
+        # 対象タイプ
+        r_type = ttk.Frame(lf_dl); r_type.pack(fill="x", padx=10, pady=(8,2))
+        ttk.Label(r_type, text="対象タイプ:").pack(side="left")
+        self._search_mr_type = tk.StringVar(value="Mod")
+        for val, lbl in [("Mod","🧩 Mod"), ("ResourcePack","🎨 ResourcePack"), ("Shader","✨ Shader")]:
+            ttk.Radiobutton(r_type, text=lbl, variable=self._search_mr_type,
+                            value=val).pack(side="left", padx=(6,0))
+
+        r_ver = ttk.Frame(lf_dl); r_ver.pack(fill="x", padx=10, pady=(8,2))
+        ttk.Label(r_ver, text="MCバージョン:").pack(side="left")
+        self._search_ver_cb = ttk.Combobox(r_ver, textvariable=self.search_version,
+                                            values=MC_VERSIONS_FALLBACK, width=11, state="readonly")
+        self._search_ver_cb.pack(side="left", padx=(4,4))
+        self._search_ver_status = tk.Label(r_ver, text="🔄",
+                                            fg=t["YEL"], bg=t["BG"], font=("Yu Gothic UI",8))
+        self._search_ver_status.pack(side="left")
+        self._tw(self._search_tk_widgets, (self._search_ver_status, "YEL", "fg"))
+        self._tw(self._search_tk_widgets, (self._search_ver_status, "BG",  "bg"))
+
+        r_ldr = ttk.Frame(lf_dl); r_ldr.pack(fill="x", padx=10, pady=(2,4))
+        ttk.Label(r_ldr, text="Mod Loader:").pack(side="left")
+        self._search_loader_cb = ttk.Combobox(r_ldr, textvariable=self.search_loader,
+                                               values=LOADERS, width=11, state="readonly")
+        self._search_loader_cb.pack(side="left", padx=(4,0))
+
+        r_dir = ttk.Frame(lf_dl); r_dir.pack(fill="x", padx=10, pady=(0,4))
+        ttk.Label(r_dir, text="保存先フォルダ:").pack(side="left")
+        ttk.Entry(r_dir, textvariable=self.search_dl_dir).pack(side="left", padx=(4,4), fill="x", expand=True)
+        ttk.Button(r_dir, text="参照", command=lambda: self._browse(self.search_dl_dir), width=4).pack(side="left", padx=(0,4))
+        ttk.Button(r_dir, text="✕", command=lambda: self.search_dl_dir.set(""), width=3).pack(side="left")
+
+        lf_mode = ttk.LabelFrame(mid_row, text="🌐  ダウンロードモード")
+        lf_mode.grid(row=0, column=1, sticky="nsew")
+
+        r_mode = ttk.Frame(lf_mode); r_mode.pack(fill="x", padx=10, pady=(8,2))
+        ttk.Label(r_mode, text="モード:").pack(side="left")
+        self._search_dl_mode_cb = ttk.Combobox(r_mode, textvariable=self.search_dl_mode,
+                                                values=DL_MODES, width=20, state="readonly")
+        self._search_dl_mode_cb.pack(side="left", padx=(4,0))
+        self._search_dl_mode_cb.bind("<<ComboboxSelected>>", lambda _: self._search_update_mode_ui())
+        self._search_mode_desc = tk.Label(lf_mode, text="", fg=t["YEL"], bg=t["BG"],
+                                           font=("Yu Gothic UI",9), wraplength=260,
+                                           justify="left", anchor="w")
+        self._search_mode_desc.pack(anchor="w", padx=10, pady=(0,4))
+        self._tw(self._search_tk_widgets, (self._search_mode_desc, "YEL", "fg"))
+        self._tw(self._search_tk_widgets, (self._search_mode_desc, "BG",  "bg"))
+        self._search_update_mode_ui()
+
+        # ── オプション ──
+        bot_row = ttk.Frame(f); bot_row.pack(fill="x", **PAD)
+        bot_row.columnconfigure(0, weight=1); bot_row.columnconfigure(1, weight=1)
+
+        lf_opt = ttk.LabelFrame(bot_row, text="⚙  オプション")
+        lf_opt.grid(row=0, column=0, sticky="nsew", padx=(0,6))
+        ttk.Checkbutton(lf_opt,
+            text="前提Modが足りなければ自動でダウンロードする",
+            variable=self.search_auto_deps).pack(padx=10, pady=(6,2), anchor="w")
+        ttk.Checkbutton(lf_opt,
+            text="前提Modのバージョンを厳密に指定する（不安定な場合はOFF）",
+            variable=self.search_strict_deps).pack(padx=10, pady=(0,8), anchor="w")
+
+        lf_warn = ttk.LabelFrame(bot_row, text="⚠  注意")
+        lf_warn.grid(row=0, column=1, sticky="nsew")
+        warn_msg = (
+            "ここではMod名（またはID）を直接指定してModrinth / CurseForgeから\n"
+            "ダウンロードします。名前が完全一致しない場合、意図しないModが\n"
+            "DLされることがあります。前提Modは自動取得しますが、バージョン・\n"
+            "Loaderの互換性は保証されません。\n"
+            "必ずバックアップを取ってから使用してください。"
+        )
+        self._search_warn_label = tk.Label(
+            lf_warn, text=warn_msg,
+            justify="left", anchor="nw",
+            fg=t["RED"], bg=t["BG"],
+            font=("Yu Gothic UI",9))
+        self._search_warn_label.pack(padx=10, pady=8, fill="x", expand=True, anchor="nw")
+        self._tw(self._search_tk_widgets, (self._search_warn_label, "RED", "fg"))
+        self._tw(self._search_tk_widgets, (self._search_warn_label, "BG",  "bg"))
+        def _upd_wrap(e, lbl=self._search_warn_label):
+            lbl.configure(wraplength=max(100, e.width - 20))
+        lf_warn.bind("<Configure>", _upd_wrap)
+
+        ttk.Frame(f, height=8).pack()
+
+    # ── 一覧タブ ──────────────────────────────────────────────────
+    def _search_build_list(self, p):
+        t = self._t()
+
+        # ツールバー
+        tb = ttk.Frame(p); tb.pack(fill="x", padx=6, pady=(6,2))
+        for text, w, cmd in [("全選択",6,lambda: self._search_sel_all(True)),
+                               ("全解除",6,lambda: self._search_sel_all(False))]:
+            ttk.Button(tb, text=text, width=w, command=cmd).pack(side="left", padx=(0,3))
+        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=(0,6), pady=2)
+        ttk.Button(tb, text="📋 リストに追加", command=self._search_add_to_list).pack(side="left", padx=(0,3))
+        ttk.Button(tb, text="🗑 選択削除",     command=self._search_remove_selected).pack(side="left", padx=(0,3))
+        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=(0,6), pady=2)
+        ttk.Button(tb, text="⬇ 選択をDL",     command=self._search_start_download).pack(side="left")
+        self._search_sel_label = ttk.Label(tb, text="0 / 0 件", width=12, anchor="e")
+        self._search_sel_label.pack(side="right", padx=4)
+
+        # 左右分割
+        body = ttk.Frame(p); body.pack(fill="both", expand=True)
+
+        # 左：Treeview
+        left = ttk.Frame(body); left.pack(side="left", fill="both", expand=True)
+        cols = ("chk","name","status")
+        self._search_tree = ttk.Treeview(left, columns=cols, show="headings", selectmode="none")
+        self._search_tree.heading("chk",    text="✔")
+        self._search_tree.heading("name",   text="Mod名")
+        self._search_tree.heading("status", text="状態")
+        self._search_tree.column("chk",    width=36,  minwidth=36,  anchor="center", stretch=False)
+        self._search_tree.column("name",   width=240, minwidth=80,  anchor="w",      stretch=True)
+        self._search_tree.column("status", width=160, minwidth=60,  anchor="w",      stretch=False)
+        vsb = ttk.Scrollbar(left, orient="vertical", command=self._search_tree.yview)
+        self._search_tree.configure(yscrollcommand=vsb.set)
+        self._search_tree.pack(side="left", fill="both", expand=True, padx=(4,0), pady=(0,4))
+        vsb.pack(side="left", fill="y", pady=(0,4), padx=(0,4))
+        self._search_tree.bind("<Button-1>",        self._search_on_click)
+        self._search_tree.bind("<<TreeviewSelect>>", self._search_on_select)
+        self._search_tree.bind("<ButtonRelease-1>",  self._search_on_select)
+
+        # 右：サイドパネル（FileListPanel と同じ構成）
+        side = ttk.LabelFrame(body, text="  📋 詳細  ")
+        side.pack(side="left", fill="y", padx=(4,4), pady=(0,4))
+        side.configure(width=220); side.pack_propagate(False)
+
+        sf = tk.Frame(side, bg=t["BG"])
+        sf.pack(fill="both", expand=True)
+        self._search_side_canvas = sf
+        self._search_side_frame  = sf
+        self._tw(self._search_tk_widgets, (sf, "BG", "bg"))
+
+        lbl_sel = tk.Label(sf, text="選択中:", font=("Yu Gothic UI",8),
+                           bg=t["BG"], fg=t["FG"])
+        lbl_sel.pack(anchor="w", padx=8, pady=(8,0))
+        self._tw(self._search_tk_widgets, (lbl_sel, "BG", "bg"))
+        self._tw(self._search_tk_widgets, (lbl_sel, "FG", "fg"))
+
+        self._search_side_name = tk.Label(sf, text="—", wraplength=195,
+                                           font=("Yu Gothic UI",9,"bold"),
+                                           bg=t["BG"], fg=t["FG"], justify="left")
+        self._search_side_name.pack(anchor="w", padx=8, pady=(0,6))
+        self._tw(self._search_tk_widgets, (self._search_side_name, "BG", "bg"))
+        self._tw(self._search_tk_widgets, (self._search_side_name, "FG", "fg"))
+
+        self._search_side_sep = tk.Frame(sf, height=1, bg=t["BG3"])
+        self._search_side_sep.pack(fill="x", padx=8, pady=4)
+        self._tw(self._search_tk_widgets, (self._search_side_sep, "BG3", "bg"))
+
+        lbl_ver = tk.Label(sf, text="バージョン:", font=("Yu Gothic UI",10),
+                           bg=t["BG"], fg=t["FG"])
+        lbl_ver.pack(anchor="w", padx=8, pady=(0,2))
+        self._tw(self._search_tk_widgets, (lbl_ver, "BG", "bg"))
+        self._tw(self._search_tk_widgets, (lbl_ver, "FG", "fg"))
+
+        self._search_ver_var   = tk.StringVar(value="最新")
+        self._search_ver_combo = ttk.Combobox(sf, textvariable=self._search_ver_var,
+                                               state="readonly", width=24)
+        self._search_ver_combo.pack(padx=8, pady=(0,2), fill="x")
+        self._search_ver_combo.bind("<<ComboboxSelected>>", self._search_on_ver_select)
+
+        self._search_ver_side_status = tk.Label(sf, text="", fg=t["YEL"],
+                                                 bg=t["BG"], font=("Yu Gothic UI",8))
+        self._search_ver_side_status.pack(anchor="w", padx=8, pady=(0,4))
+        self._tw(self._search_tk_widgets, (self._search_ver_side_status, "BG", "bg"))
+
+        ttk.Button(sf, text="🔄 バージョン取得",
+                   command=self._search_fetch_versions).pack(padx=8, pady=(0,8), fill="x")
+
+    # ── ログタブ ──────────────────────────────────────────────────
+    def _search_build_log(self, p):
+        t = self._t()
+        self._search_log_box = scrolledtext.ScrolledText(
+            p,
+            bg=t["LOG"], fg=t["FG"],
+            selectbackground=t["SEL"], selectforeground=t["SEL_FG"],
+            insertbackground=t["FG"],
+            font=("Consolas",9), relief="flat", wrap="word"
+        )
+        self._search_log_box.frame.configure(background=t["LOG"])
+        self._search_log_box.pack(fill="both", expand=True, padx=8, pady=8)
+        for tag, color in [("ok",t["GRN"]),("err",t["RED"]),("info",t["ACC"]),("warn",t["YEL"])]:
+            self._search_log_box.tag_config(tag, foreground=color)
+        ttk.Button(p, text="クリア",
+                   command=lambda: self._search_log_box.delete("1.0","end")).pack(pady=(0,8))
+
+    # ── Mod検索タブ ヘルパー群 ─────────────────────────────────────
+
+    def _search_update_mode_ui(self):
+        mode = self.search_dl_mode.get()
+        desc = {DL_BOTH:     "Modrinthで検索 → なければCurseForgeも",
+                DL_CF_FIRST: "CurseForgeで検索 → なければModrinthも（APIキー必須）",
+                DL_MR:       "Modrinthのみ（APIキー不要）",
+                DL_CF:       "CurseForgeのみ（APIキー必須）"}.get(mode,"")
+        self._search_mode_desc.config(text=f"  ℹ {desc}")
+
+    def _search_log(self, msg, tag=""):
+        def _do():
+            at_bottom = self._search_log_box.yview()[1] >= 0.999
+            self._search_log_box.insert("end", msg + "\n", tag)
+            if at_bottom: self._search_log_box.see("end")
+        self.after(0, _do)
+
+    def _search_set_status(self, msg):
+        # ウィンドウ下部の共有ラベルを使う
+        self._set_status(msg)
+
+    def _search_set_progress(self, v, maximum=None):
+        # ウィンドウ下部の共有プログレスバーを使う
+        self._set_progress(v, maximum)
+
+    def _search_do_cancel(self):
+        # 共有の _cancel を呼ぶことで _search_cancel_flag・_cancel_flag 両方を立てる
+        self._cancel()
+
+    # ── 入力エリア操作 ──
+
+    def _search_clear_input(self):
+        self._search_input.delete("1.0","end")
+
+    def _search_get_raw_text(self):
+        return self._search_input.get("1.0","end").strip()
+
+    def _parse_mod_names(self, text):
+        parts = re.split(r"[,\n]", text)
+        return [p.strip() for p in parts if p.strip()]
+
+    def _search_load_txt(self):
+        path = filedialog.askopenfilename(
+            title="テキスト/CSVファイルを選択",
+            filetypes=[("テキスト/CSV","*.txt *.csv"),("すべて","*.*")])
+        if not path: return
+        try:
+            with open(path, encoding="utf-8-sig", errors="replace") as f:
+                raw = f.read()
+            self._search_append_names(self._parse_mod_names(raw), path)
+        except Exception as e:
+            messagebox.showerror("読込エラー", str(e))
+
+    def _search_load_json(self):
+        """JSON対応: 配列 / {"mods":[...]} / オブジェクトキーをMod名として使用"""
+        path = filedialog.askopenfilename(
+            title="JSONファイルを選択",
+            filetypes=[("JSON","*.json"),("すべて","*.*")])
+        if not path: return
+        try:
+            with open(path, encoding="utf-8-sig", errors="replace") as f:
+                data = json.load(f)
+            names = []
+            if isinstance(data, list):
+                names = [str(x).strip() for x in data if isinstance(x, str) and x.strip()]
+            elif isinstance(data, dict):
+                for key in ("mods","modlist","mods_list","modIds","mod_ids"):
+                    if key in data and isinstance(data[key], list):
+                        names = [str(x).strip() for x in data[key] if isinstance(x, str) and str(x).strip()]
+                        break
+                else:
+                    names = [str(k).strip() for k in data.keys() if str(k).strip()]
+            if not names:
+                messagebox.showinfo("情報","Mod名が見つかりませんでした"); return
+            self._search_append_names(names, path)
+        except Exception as e:
+            messagebox.showerror("読込エラー", str(e))
+
+    def _search_append_names(self, names, source_path):
+        if not names:
+            messagebox.showinfo("情報","Mod名が見つかりませんでした"); return
+        existing = self._search_get_raw_text()
+        sep = ", " if existing else ""
+        self._search_input.insert("end", sep + ", ".join(names))
+        self._search_log(f"📄 {os.path.basename(source_path)} から {len(names)} 件読み込み", "info")
+
+    # ── 一覧タブ操作 ──
+
+    def _search_add_to_list(self):
+        raw = self._search_get_raw_text()
+        if not raw:
+            messagebox.showinfo("情報","Mod名を入力してください"); return
+        names = self._parse_mod_names(raw)
+        if not names:
+            messagebox.showinfo("情報","Mod名が見つかりませんでした"); return
+        # 既存リストをクリアしてから追加
+        for iid in self._search_tree.get_children():
+            self._search_tree.delete(iid)
+        self._search_items.clear()
+        self._search_ver_cache.clear()
+        self._search_cur_iid = None
+        self._search_side_name.config(text="—")
+        self._search_ver_var.set("最新")
+        self._search_ver_combo["values"] = ["最新"]
+        self._search_ver_side_status.config(text="")
+        added = 0
+        for n in names:
+            iid = f"srch_{added}_{n}"
+            self._search_items.append({"iid":iid,"name":n,"status":"待機中","ver_override":None})
+            self._search_tree.insert("","end", iid=iid, values=("☑", n, "待機中"))
+            added += 1
+        self._search_upd_label()
+        if added:
+            self._search_log(f"✅ {added} 件をリストに追加しました", "ok")
+            self._show_toast(f"Mod検索: {added} 件を一覧に追加しました")
+            # 一覧子タブへ移動
+            self._search_nb.select(1)
+            # 全体設定の「自動タブ移動」がONなら MOD親タブ内のMod検索(子3)へ移動
+            if hasattr(self, "auto_switch_tab") and self.auto_switch_tab.get():
+                self._mod_select(3)
+        else:
+            self._search_log("⚠ 追加するMod名がありませんでした", "warn")
+
+    def _search_remove_selected(self):
+        to_rm = [iid for iid in self._search_tree.get_children()
+                 if self._search_tree.set(iid,"chk") == "☑"]
+        for iid in to_rm:
+            self._search_tree.delete(iid)
+            self._search_items = [it for it in self._search_items if it["iid"] != iid]
+            self._search_ver_cache.pop(iid, None)
+        if self._search_cur_iid in to_rm:
+            self._search_cur_iid = None
+            self._search_side_name.config(text="—")
+            self._search_ver_var.set("最新")
+            self._search_ver_combo["values"] = ["最新"]
+            self._search_ver_side_status.config(text="")
+        self._search_upd_label()
+
+    def _search_sel_all(self, v):
+        mark = "☑" if v else "☐"
+        for row in self._search_tree.get_children():
+            self._search_tree.set(row, "chk", mark)
+        self._search_upd_label()
+
+    def _search_on_click(self, e):
+        row = self._search_tree.identify_row(e.y)
+        if row and self._search_tree.identify_column(e.x) == "#1":
+            cur = self._search_tree.set(row,"chk")
+            self._search_tree.set(row,"chk","☑" if cur=="☐" else "☐")
+            self._search_upd_label()
+        if row:
+            self._search_tree.selection_set(row)
+            self._search_on_select(e)
+
+    def _search_on_select(self, e=None):
+        rows = self._search_tree.selection()
+        if not rows: return
+        row = rows[0]
+        if row == self._search_cur_iid: return
+        self._search_cur_iid = row
+        item = next((it for it in self._search_items if it["iid"]==row), None)
+        if not item: return
+        self._search_side_name.config(text=item["name"])
+        cached = self._search_ver_cache.get(row, [])
+        labels = ["最新"] + [v["label"] for v in cached]
+        self._search_ver_combo["values"] = labels
+        override = item.get("ver_override")
+        if override:
+            matched = next((v["label"] for v in cached if v["id"]==override), None)
+            self._search_ver_var.set(matched or "最新")
+        else:
+            self._search_ver_var.set("最新")
+        if cached:
+            self._search_ver_side_status.config(
+                text=f"✅ {len(cached)} 件取得済み",
+                fg=THEMES[self._theme]["GRN"])
+        else:
+            self._search_ver_side_status.config(
+                text="← 取得ボタンでバージョン一覧を取得",
+                fg=THEMES[self._theme]["FG"])
+
+    def _search_upd_label(self):
+        rows = self._search_tree.get_children()
+        sel  = sum(1 for r in rows if self._search_tree.set(r,"chk")=="☑")
+        self._search_sel_label.config(text=f"{sel} / {len(rows)} 件選択")
+
+    def _search_set_item_status(self, iid, status):
+        def _do():
+            if not self._search_tree.exists(iid): return
+            item = next((it for it in self._search_items if it["iid"]==iid), None)
+            if item: item["status"] = status
+            self._search_tree.item(iid, values=(
+                self._search_tree.set(iid,"chk"),
+                self._search_tree.set(iid,"name"),
+                status))
+        self.after(0, _do)
+
+    # ── サイドパネル バージョン取得 ──
+
+    def _search_fetch_versions(self):
+        if not self._search_cur_iid: return
+        item = next((it for it in self._search_items if it["iid"]==self._search_cur_iid), None)
+        if not item: return
+        t = self._t()
+        self._search_ver_side_status.config(text="🔄 取得中...", fg=t["YEL"])
+        self._search_ver_combo.config(state="disabled")
+
+        iid    = self._search_cur_iid
+        name   = item["name"]
+        mc_ver = self.search_version.get()
+        loader = self.search_loader.get()
+        # 現在選択中のタイプを取得
+        type_map = {"Mod": MR_MOD, "ResourcePack": MR_RP, "Shader": MR_SHADE}
+        mr_type  = type_map.get(self._search_mr_type.get(), MR_MOD)
+
+        def _fetch():
+            results = []
+            try:
+                # mr_find_project で名前→スラッグ検索→ハッシュの順で探す
+                # （updaterと同じ経路で一致率を上げる）
+                pid = mr_find_project(None, name, name, mr_type)
+                if not pid:
+                    # スラッグとして直接試みる
+                    try:
+                        pid = http_get(f"{MODRINTH_API}/project/{name}").get("id")
+                    except Exception:
+                        pass
+                if pid:
+                    p = {"game_versions": json.dumps([mc_ver])}
+                    if mr_type == MR_MOD:
+                        p["loaders"] = json.dumps([loader])
+                    vs = http_get(f"{MODRINTH_API}/project/{pid}/version?{urllib.parse.urlencode(p)}")
+                    results = [{"label": f"{v.get('version_number','?')}  [{v.get('game_versions',['?'])[-1]}]",
+                                "id": v["id"]} for v in vs]
+            except Exception:
+                pass
+            self.after(0, lambda r=results: self._search_ver_cb_done(iid, r))
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _search_ver_cb_done(self, iid, results):
+        t = self._t()
+        self._search_ver_cache[iid] = results
+        labels = ["最新"] + [v["label"] for v in results]
+        self._search_ver_combo["values"] = labels
+        self._search_ver_combo.config(state="readonly")
+        item = next((it for it in self._search_items if it["iid"]==iid), None)
+        override = item.get("ver_override") if item else None
+        if override:
+            matched = next((v["label"] for v in results if v["id"]==override), None)
+            self._search_ver_var.set(matched or "最新")
+        else:
+            self._search_ver_var.set("最新")
+        if results:
+            self._search_ver_side_status.config(text=f"✅ {len(results)} 件取得", fg=t["GRN"])
+        else:
+            self._search_ver_side_status.config(text="⚠ バージョンなし", fg=t["RED"])
+
+    def _search_on_ver_select(self, e=None):
+        if not self._search_cur_iid: return
+        label = self._search_ver_var.get()
+        item  = next((it for it in self._search_items if it["iid"]==self._search_cur_iid), None)
+        if not item: return
+        t = self._t()
+        if label == "最新":
+            item["ver_override"] = None
+            self._search_ver_side_status.config(text="✅ 最新でDL", fg=t["GRN"])
+        else:
+            cached = self._search_ver_cache.get(self._search_cur_iid, [])
+            ver = next((v for v in cached if v["label"]==label), None)
+            item["ver_override"] = ver["id"] if ver else None
+            self._search_ver_side_status.config(text=f"✅ {label} を選択", fg=t["GRN"])
+
+    # ── ダウンロード ──
+
+    def _search_start_download(self):
+        selected = [it for it in self._search_items
+                    if self._search_tree.exists(it["iid"])
+                    and self._search_tree.set(it["iid"],"chk") == "☑"]
+        if not selected:
+            messagebox.showinfo("情報","ダウンロードするアイテムを選択してください"); return
+        out_dir = self.search_dl_dir.get().strip()
+        if not out_dir or not os.path.isdir(out_dir):
+            messagebox.showerror("エラー","有効な保存先フォルダを指定してください"); return
+        mode = self.search_dl_mode.get()
+        if mode in (DL_BOTH, DL_CF_FIRST, DL_CF) and not self.cf_api_key.get().strip():
+            messagebox.showerror("エラー",
+                "CurseForgeを使用するにはAPIキーが必要です\n設定タブでAPIキーを入力してください"); return
+        if self._search_running:
+            messagebox.showwarning("実行中","現在ダウンロード中です"); return
+        # 対象タイプを解決
+        type_map = {
+            "Mod":          (MR_MOD,   CF_MOD),
+            "ResourcePack": (MR_RP,    CF_RP),
+            "Shader":       (MR_SHADE, CF_SHADE),
+        }
+        mr_type, cf_class = type_map.get(self._search_mr_type.get(), (MR_MOD, CF_MOD))
+        self._search_running     = True
+        self._search_cancel_flag = False
+        self._search_set_progress(0, len(selected))
+        self.after(0, lambda: self._cancel_btn.config(state="normal"))
+        self._mod_select(3)          # MOD親タブ内のMod検索へ
+        self._search_nb.select(2)    # さらにログ子タブへ
+        threading.Thread(
+            target=self._search_worker,
+            args=(selected, out_dir, self.search_version.get(),
+                  self.search_loader.get(), mode, self.cf_api_key.get().strip(),
+                  mr_type, cf_class),
+            daemon=True).start()
+
+    def _search_worker(self, items, out_dir, mc_ver, loader, mode, cf_key,
+                       mr_type=None, cf_class=None):
+        if mr_type  is None: mr_type  = MR_MOD
+        if cf_class is None: cf_class = CF_MOD
+        auto_deps = self.search_auto_deps.get()
+        strict    = self.search_strict_deps.get()
+        done_deps = set()
+        ok_list   = []
+        fail_list = []
+
+        for i, item in enumerate(items):
+            if self._search_cancel_flag:
+                self._search_log("\n⏹ 中止されました","warn"); break
+            name         = item["name"]
+            ver_override = item.get("ver_override")
+            self._search_set_item_status(item["iid"],"🔄 検索中...")
+            self._search_set_status(f"{i+1}/{len(items)}: {name[:24]}")
+            self._search_log(f"\n── {name} ──","info")
+
+            def _log(msg, tag=""): self._search_log(msg, tag)
+
+            dl_url, dl_fname, source, version_obj = find_dl_info(
+                name, "", None,
+                mc_ver, loader, mode, cf_key,
+                mr_type, cf_class, _log,
+                ver_override=ver_override)
+
+            if dl_url and dl_fname:
+                dest = os.path.join(out_dir, dl_fname)
+                try:
+                    self._search_log(f"  ⬇ DL中 [{source}]: {dl_fname}","")
+                    download_file(dl_url, dest,
+                                  lambda prog, n=name: self._search_set_status(
+                                      f"DL: {n[:18]} {prog*100:.0f}%"))
+                    self._search_log("  ✅ 完了","ok")
+                    self._search_set_item_status(item["iid"],"✅ 完了")
+                    ok_list.append(name)
+                    if auto_deps and version_obj:
+                        for dep_pid, dep_vid in mr_get_deps(version_obj):
+                            if dep_pid in done_deps: continue
+                            done_deps.add(dep_pid)
+                            self._search_log(f"  🔗 依存Mod: {dep_pid}","info")
+                            try:
+                                du = df = None
+                                if strict and dep_vid:
+                                    v_data = http_get(f"{MODRINTH_API}/version/{dep_vid}")
+                                    du, df = mr_best_file(v_data)
+                                else:
+                                    vs = mr_get_versions(dep_pid, mc_ver, loader)
+                                    if vs: du, df = mr_best_file(vs[0])
+                                if du and df:
+                                    ddest = os.path.join(out_dir, df)
+                                    if os.path.exists(ddest):
+                                        self._search_log(f"  🔗 既存: {df}","ok")
+                                    else:
+                                        download_file(du, ddest)
+                                        self._search_log(f"  🔗 依存DL完了: {df}","ok")
+                                        ok_list.append(f"[依存] {df}")
+                                else:
+                                    self._search_log("  🔗 依存Mod: 対応バージョンなし","warn")
+                            except Exception as dep_e:
+                                self._search_log(f"  🔗 依存エラー: {dep_e}","err")
+                except Exception as e:
+                    self._search_log(f"  ❌ DL失敗: {e}","err")
+                    if os.path.exists(dest):
+                        try: os.remove(dest)
+                        except Exception: pass
+                    self._search_set_item_status(item["iid"],"❌ 失敗")
+                    fail_list.append(name)
+            else:
+                self._search_set_item_status(item["iid"],"❌ 見つからず")
+                fail_list.append(name)
+
+            self._search_set_progress(i + 1)
+
+        self._search_log(f"\n{'═'*40}","info")
+        self._search_log(f"✅ 成功: {len(ok_list)} 件","ok")
+        for n in ok_list: self._search_log(f"   ✓ {n}","ok")
+        if fail_list:
+            self._search_log(f"❌ 失敗: {len(fail_list)} 件","err")
+            for n in fail_list: self._search_log(f"   ✗ {n}","err")
+        else:
+            self._search_log("🎉 全て完了！","ok")
+
+        self._search_set_status("完了" if not self._search_cancel_flag else "中止")
+        self._search_running = False
+        self.after(0, lambda: self._cancel_btn.config(state="disabled"))
+        msg = f"✅ 成功: {len(ok_list)} 件\n❌ 失敗: {len(fail_list)} 件"
+        if fail_list:
+            msg += "\n\n失敗:\n" + "\n".join(f"  • {n}" for n in fail_list)
+        self.after(0, lambda: messagebox.showinfo("完了", msg))
 
     def _build_plugin_tab(self, p):
         """plugin_updater.py を動的にインポートしてプラグインタブに埋め込む"""
@@ -1010,6 +1712,12 @@ class App(tk.Tk):
                                                      parent_app=self)
             self._plugin_app.pack(fill="both", expand=True)
             self._plugin_app._disable_combobox_wheel()
+            # プラグインリスト出力ボタン（タブ下部）
+            plugin_bar = ttk.Frame(p)
+            plugin_bar.pack(fill="x", padx=4, pady=(0,4))
+            ttk.Button(plugin_bar, text="📤 プラグインリスト出力",
+                       command=lambda: self._export_list(None, "plugin"),
+                       width=22).pack(side="left", padx=(4,0))
         except Exception as e:
             ttk.Label(p, text=f"プラグインタブの読み込みに失敗しました\n{e}",
                        foreground=RED).pack(expand=True)
@@ -1019,7 +1727,7 @@ class App(tk.Tk):
         self._theme = "dark" if self._theme == "light" else "light"
         _apply_theme_globals(self._theme)
         self._apply_style()
-        t = THEMES[self._theme]
+        t = self._t()
         self._theme_btn.config(text=t["ICON"])
         # ログボックスの色を更新
         for box in self._log_boxes.values():
@@ -1078,6 +1786,33 @@ class App(tk.Tk):
         # プラグインタブにも適用
         if hasattr(self, "_plugin_app") and self._plugin_app:
             self._plugin_app.apply_theme(self._theme)
+        # Mod検索タブのtk.Labelなどを更新
+        if hasattr(self, "_search_tk_widgets"):
+            for widget, color_key, attr in self._search_tk_widgets:
+                try:
+                    widget.config(**{attr: t[color_key]})
+                except Exception: pass
+        if hasattr(self, "_search_log_box"):
+            self._search_log_box.config(
+                bg=t["LOG"], fg=t["FG"],
+                selectbackground=t["SEL"], selectforeground=t["SEL_FG"],
+                insertbackground=t["FG"])
+            self._search_log_box.frame.configure(background=t["LOG"])
+            for tag, color in [("ok",t["GRN"]),("err",t["RED"]),("info",t["ACC"]),("warn",t["YEL"])]:
+                self._search_log_box.tag_config(tag, foreground=color)
+        # 入力欄（ScrolledText）の色を更新
+        if hasattr(self, "_search_input"):
+            self._search_input.config(bg=t["LOG"], fg=t["FG"],
+                                       selectbackground=t["SEL"], selectforeground=t["SEL_FG"],
+                                       insertbackground=t["FG"])
+            self._search_input.frame.configure(background=t["LOG"])
+        # バージョン状態ラベルの fg を現在の状態に合わせて再設定
+        if hasattr(self, "_search_ver_side_status"):
+            txt = self._search_ver_side_status.cget("text")
+            if txt.startswith("✅"):   self._search_ver_side_status.config(fg=t["GRN"])
+            elif txt.startswith("⚠"): self._search_ver_side_status.config(fg=t["RED"])
+            elif txt.startswith("🔄"): self._search_ver_side_status.config(fg=t["YEL"])
+            else:                       self._search_ver_side_status.config(fg=t["FG"])
 
     def _update_mode_ui(self):
         mode = self.dl_mode.get()
@@ -1103,8 +1838,59 @@ class App(tk.Tk):
             messagebox.showerror("エラー","CurseForgeを使用するにはAPIキーが必要です"); return False
         return True
 
+    def _export_list(self, panel, kind_key):
+        """パネルの一覧をテキストファイルに出力する。
+        kind_key: "mod" / "resourcepack" / "shader" / "plugin"
+        """
+        # 対象アイテム取得
+        if kind_key == "plugin":
+            if not hasattr(self, "_plugin_app") or not self._plugin_app:
+                messagebox.showerror("エラー", "プラグインタブが利用できません"); return
+            items = self._plugin_app.plugin_list
+            if not items:
+                messagebox.showinfo("情報", "プラグインリストが空です\nまず「📂 読み込む」を実行してください"); return
+            lines = [it.get("name", it.get("filename","")) for it in items]
+        else:
+            if not panel.items:
+                messagebox.showinfo("情報", "リストが空です\nまず「📂 読み込む」を実行してください"); return
+            lines = [it.get("name") or it.get("display_name") or it.get("filename","")
+                     for it in panel.items]
+
+        label_map = {
+            "mod":          "Mod",
+            "resourcepack": "ResourcePack",
+            "shader":       "Shader",
+            "plugin":       "Plugin",
+        }
+        default_name = f"{label_map.get(kind_key, kind_key)}_list.txt"
+
+        path = filedialog.asksaveasfilename(
+            title="リストを保存",
+            defaultextension=".txt",
+            initialfile=default_name,
+            filetypes=[("テキストファイル","*.txt"),("CSVファイル","*.csv"),("すべて","*.*")]
+        )
+        if not path: return
+
+        try:
+            # 拡張子が .csv ならカンマ区切り、それ以外は1行1項目
+            if path.lower().endswith(".csv"):
+                content = ", ".join(lines) + "\n"
+            else:
+                content = "\n".join(lines) + "\n"
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            self._log(f"📤 {label_map.get(kind_key,kind_key)}リスト出力: {os.path.basename(path)} ({len(lines)} 件)", "ok", "sys")
+            messagebox.showinfo("完了", f"{len(lines)} 件を出力しました\n{path}")
+        except Exception as e:
+            messagebox.showerror("出力エラー", str(e))
+
     def _cancel(self):
         self._cancel_flag = True
+        if hasattr(self, "_search_cancel_flag"):
+            self._search_cancel_flag = True
+        if hasattr(self, "_plugin_app") and self._plugin_app:
+            self._plugin_app._psearch_cancel_flag = True
         self._set_status("中止中...")
         self._cancel_btn.config(state="disabled")
         if hasattr(self, "_plugin_app") and self._plugin_app:
@@ -1220,17 +2006,17 @@ class App(tk.Tk):
 
     def _load_mods(self):
         if self._load_dir(self.mods_dir, ".jar", self._mod_panel, "mod", "Mod"):
-            if self.auto_switch_tab.get(): self._nb.select(1)
+            if self.auto_switch_tab.get(): self._mod_select(1)
             self._show_toast("Modを読み込みました。")
 
     def _load_rp(self):
         if self._load_dir(self.rp_dir, ".zip", self._rp_panel, "rp", "ResourcePack"):
-            if self.auto_switch_tab.get(): self._nb.select(1)
+            if self.auto_switch_tab.get(): self._mod_select(1)
             self._show_toast("ResourcePackを読み込みました。")
 
     def _load_shader(self):
         if self._load_dir(self.shader_dir, ".zip", self._shader_panel, "shader", "Shader"):
-            if self.auto_switch_tab.get(): self._nb.select(1)
+            if self.auto_switch_tab.get(): self._mod_select(1)
             self._show_toast("Shaderを読み込みました。")
 
     def _load_all(self):
@@ -1242,7 +2028,7 @@ class App(tk.Tk):
         if self._load_dir(self.shader_dir, ".zip", self._shader_panel, "shader", "Shader"):
             loaded.append("Shader")
         if loaded:
-            if self.auto_switch_tab.get(): self._nb.select(1)
+            if self.auto_switch_tab.get(): self._mod_select(1)
             self._show_toast("・".join(loaded) + "を読み込みました。")
 
     def _load_from_profile(self):
@@ -1287,12 +2073,9 @@ class App(tk.Tk):
     def _run_tasks(self, tasks, single_type=None):
         if self._running: messagebox.showwarning("実行中","現在アップデート中です"); return
         self._running = True; self._cancel_flag = False
-        self._set_progress(0, len(tasks)); self._nb.select(2)
+        self._set_progress(0, len(tasks)); self._mod_select(2)
         def _enable_cancel():
             self._cancel_btn.config(state="normal")
-            for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
-                if hasattr(panel, "_mini_cancel_btn"):
-                    panel._mini_cancel_btn.config(state="normal")
         self.after(0, _enable_cancel)
         threading.Thread(target=self._worker,
                           args=(tasks, self.target_version.get(), self.target_loader.get(),
@@ -1445,9 +2228,6 @@ class App(tk.Tk):
         self._running = False
         def _disable_cancel():
             self._cancel_btn.config(state="disabled")
-            for panel in (self._mod_panel, self._rp_panel, self._shader_panel):
-                if hasattr(panel, "_mini_cancel_btn"):
-                    panel._mini_cancel_btn.config(state="disabled")
         self.after(0, _disable_cancel)
         msg = f"✅ 成功: {total_ok} 件\n❌ 失敗: {total_fail} 件"
         if total_fail:
@@ -1488,11 +2268,23 @@ class App(tk.Tk):
             self._filter_versions()
             for ev in ("<MouseWheel>","<Button-4>","<Button-5>"):
                 self._ver_cb.bind(ev, lambda e: "break")
+            # 検索タブのバージョンコンボにも反映
+            if hasattr(self, "_search_ver_cb"):
+                scur = self.search_version.get()
+                self._search_ver_cb["values"] = versions
+                self._search_ver_cb.set(scur if scur in versions else versions[0])
+                self.search_version.set(self._search_ver_cb.get())
+                for ev in ("<MouseWheel>","<Button-4>","<Button-5>"):
+                    self._search_ver_cb.bind(ev, lambda e: "break")
             if versions == MC_VERSIONS_FALLBACK:
                 self._ver_status.config(text="⚠ オフライン", foreground=YEL)
+                if hasattr(self,"_search_ver_status"):
+                    self._search_ver_status.config(text="⚠", foreground=YEL)
                 self._log("⚠ バージョン取得失敗 → フォールバック使用","warn","sys")
             else:
                 self._ver_status.config(text=f"✅ {len(versions)} 件", foreground=GRN)
+                if hasattr(self,"_search_ver_status"):
+                    self._search_ver_status.config(text=f"✅ {len(versions)}件", foreground=GRN)
                 self._log(f"✅ MCバージョン {len(versions)} 件取得（最新: {versions[0]}）","ok","sys")
         self.after(0, _upd)
 
@@ -1517,6 +2309,12 @@ class App(tk.Tk):
             "backup_mode":    self.backup_mode.get(),
             "backup_dir":     self.backup_dir.get(),
             "theme":          self._theme,
+            "search_dl_dir":     self.search_dl_dir.get(),
+            "search_version":    self.search_version.get(),
+            "search_loader":     self.search_loader.get(),
+            "search_dl_mode":    self.search_dl_mode.get(),
+            "search_auto_deps":  self.search_auto_deps.get(),
+            "search_strict_deps":self.search_strict_deps.get(),
         })
         # plugin_updater の設定を値を直接取り出してマージ（別ファイルに保存されないよう）
         if hasattr(self, "_plugin_app") and self._plugin_app:

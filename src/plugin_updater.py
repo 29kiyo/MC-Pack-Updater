@@ -277,6 +277,13 @@ class PluginUpdaterApp(ttk.Frame):
         self._current_iid   = None
         self._versions_cache = []
 
+        # プラグイン検索タブ用
+        self._psearch_running     = False
+        self._psearch_cancel_flag = False
+        self._psearch_items       = []
+        self._psearch_ver_cache   = {}
+        self._psearch_cur_iid     = None
+
         self._build()
 
     # ── ビルド ────────────────────────────────────────────────────────────────
@@ -288,12 +295,14 @@ class PluginUpdaterApp(ttk.Frame):
         t_lst = ttk.Frame(nb); nb.add(t_lst, text=" 🔌 プラグイン一覧 ")
         t_log = ttk.Frame(nb); nb.add(t_log, text=" 📋 ログ ")
         t_ins = ttk.Frame(nb); nb.add(t_ins, text=" 🔍 検査 ")
+        t_src = ttk.Frame(nb); nb.add(t_src, text=" 🔎 プラグイン検索 ")
         self._nb = nb
 
         self._build_settings(t_set)
         self._build_list(t_lst)
         self._build_log(t_log)
         self._build_inspect(t_ins)
+        self._build_plugin_search(t_src)
 
     def _build_settings(self, p):
         t = THEMES[self._theme]
@@ -323,8 +332,7 @@ class PluginUpdaterApp(ttk.Frame):
         )
         dl_info.pack(anchor="w", padx=10, pady=(8, 4))
         self._dl_info_label = dl_info
-        self._tk_widgets.append((dl_info, "YEL", "fg"))
-        self._tk_widgets.append((dl_info, "BG",  "bg"))
+        self._tw(self._tk_widgets, dl_info, ("YEL", "fg"), ("BG", "bg"))
 
         # Plugin Loader 選択行
         loader_row = ttk.Frame(lf3)
@@ -348,8 +356,7 @@ class PluginUpdaterApp(ttk.Frame):
             fg=t["RED"], bg=t["BG"],
             font=("Yu Gothic UI", 9),
         )
-        self._tk_widgets.append((self._auto_warn_label, "RED", "fg"))
-        self._tk_widgets.append((self._auto_warn_label, "BG",  "bg"))
+        self._tw(self._tk_widgets, self._auto_warn_label, ("RED", "fg"), ("BG", "bg"))
         self._loader_combo.bind("<<ComboboxSelected>>", self._on_loader_change)
         self._on_loader_change()  # 初期表示
 
@@ -385,8 +392,7 @@ class PluginUpdaterApp(ttk.Frame):
             lbl.configure(wraplength=max(100, e.width - 20))
         lf5.bind("<Configure>", _update_plugin_warn_wrap)
         self._warn_label = warn
-        self._tk_widgets.append((warn, "RED", "fg"))
-        self._tk_widgets.append((warn, "BG",  "bg"))
+        self._tw(self._tk_widgets, warn, ("RED", "fg"), ("BG", "bg"))
 
         ttk.Frame(f, height=10).pack()
 
@@ -441,32 +447,29 @@ class PluginUpdaterApp(ttk.Frame):
         # _side_canvas/_side_frame はapply_themeで参照されるため両方sfを指す
         self._side_canvas = sf
         self._side_frame  = sf
-        self._tk_widgets.append((sf, "BG", "bg"))
+        self._tw(self._tk_widgets, sf, ("BG", "bg"))
 
         # サイドパネル内のラベルは tk.Label で作り bg を直接管理する
         lbl_sel = tk.Label(sf, text="選択中:", font=("Yu Gothic UI", 8),
                            bg=t["BG"], fg=t["FG"])
         lbl_sel.pack(anchor="w", padx=8, pady=(8, 0))
-        self._tk_widgets.append((lbl_sel, "BG", "bg"))
-        self._tk_widgets.append((lbl_sel, "FG", "fg"))
+        self._tw(self._tk_widgets, lbl_sel, ("BG", "bg"), ("FG", "fg"))
 
         self._side_name = tk.Label(sf, text="—", wraplength=195,
                                    font=("Yu Gothic UI", 9, "bold"),
                                    bg=t["BG"], fg=t["FG"], justify="left")
         self._side_name.pack(anchor="w", padx=8, pady=(0, 6))
-        self._tk_widgets.append((self._side_name, "BG", "bg"))
-        self._tk_widgets.append((self._side_name, "FG", "fg"))
+        self._tw(self._tk_widgets, self._side_name, ("BG", "bg"), ("FG", "fg"))
 
         # Separator は tk.Frame で代替（ttk.Separator は bg 制御が複雑）
         sep = tk.Frame(sf, height=1, bg=t["BG3"])
         sep.pack(fill="x", padx=8, pady=4)
-        self._tk_widgets.append((sep, "BG3", "bg"))
+        self._tw(self._tk_widgets, sep, ("BG3", "bg"))
 
         lbl_ver = tk.Label(sf, text="バージョン:", font=("Yu Gothic UI", 10),
                            bg=t["BG"], fg=t["FG"])
         lbl_ver.pack(anchor="w", padx=8, pady=(0, 2))
-        self._tk_widgets.append((lbl_ver, "BG", "bg"))
-        self._tk_widgets.append((lbl_ver, "FG", "fg"))
+        self._tw(self._tk_widgets, lbl_ver, ("BG", "bg"), ("FG", "fg"))
 
         self._ver_var   = tk.StringVar(value="最新")
         self._ver_combo = ttk.Combobox(sf, textvariable=self._ver_var, state="readonly", width=24)
@@ -477,7 +480,7 @@ class PluginUpdaterApp(ttk.Frame):
         self._ver_status_side = tk.Label(sf, text="", font=("Yu Gothic UI", 8),
                                          bg=t["BG"], fg=t["FG"])
         self._ver_status_side.pack(anchor="w", padx=8, pady=(0, 4))
-        self._tk_widgets.append((self._ver_status_side, "BG", "bg"))
+        self._tw(self._tk_widgets, self._ver_status_side, ("BG", "bg"))
         # fg は状態に応じて変わるため BG だけ登録し、fg は _refresh_ver_status_color で管理
 
         ttk.Button(sf, text="🔄 バージョン取得", command=self._fetch_versions_side).pack(padx=8, pady=(0, 8), fill="x")
@@ -495,6 +498,526 @@ class PluginUpdaterApp(ttk.Frame):
             self._auto_warn_label.pack(anchor="w", padx=10, pady=(0, 8))
         else:
             self._auto_warn_label.pack_forget()
+
+    # ══════════════════════════════════════════════════════════════
+    # プラグイン検索タブ（子タブ構成：設定 / 一覧 / ログ）
+    # ══════════════════════════════════════════════════════════════
+    def _build_plugin_search(self, p):
+        self._psearch_tk_widgets = []
+
+        snb = ttk.Notebook(p)
+        snb.pack(fill="both", expand=True)
+        self._psearch_nb = snb
+
+        t_cfg = ttk.Frame(snb); snb.add(t_cfg, text=" ⚙ 設定 ")
+        t_lst = ttk.Frame(snb); snb.add(t_lst, text=" 📋 一覧 ")
+        t_log = ttk.Frame(snb); snb.add(t_log, text=" 📄 ログ ")
+
+        self._psearch_build_settings(t_cfg)
+        self._psearch_build_list(t_lst)
+        self._psearch_build_log(t_log)
+
+    # ── 設定タブ ──────────────────────────────────────────────────
+    def _psearch_build_settings(self, p):
+        t = self._t()
+        f = ttk.Frame(p); f.pack(fill="both", expand=True, padx=2, pady=2)
+        PAD = dict(padx=14, pady=(0,8))
+
+        # 入力エリア
+        lf_input = ttk.LabelFrame(f, text="🔎  プラグイン名入力 / ファイル読み込み")
+        lf_input.pack(fill="x", padx=14, pady=(8,8))
+
+        ph_lbl = tk.Label(lf_input,
+            text=(
+                "【入力方法】 プラグイン名をカンマ（,）または改行で区切って入力してください。\n"
+                "  ・名前にスペースが含まれる場合は正確に入力してください。\n"
+                "    例: EssentialsX → 「EssentialsX」 / LuckPerms → 「LuckPerms」\n"
+                "  ・Modrinthのスラッグ（プロジェクトID）を使うと確実です。\n"
+                "    例: luckperms, essentialsx, vault, worldedit\n"
+                "  ・ファイルから読み込む場合は下のボタンを使用してください。"
+            ),
+            fg=t["ACC"], bg=t["BG2"],
+            font=("Yu Gothic UI",8), anchor="w", justify="left",
+            padx=8, pady=4)
+        ph_lbl.pack(fill="x", padx=8, pady=(6,2))
+        self._tw(self._psearch_tk_widgets, ph_lbl, ("ACC", "fg"), ("BG2", "bg"))
+
+        self._psearch_input = scrolledtext.ScrolledText(
+            lf_input,
+            bg=t["LOG"], fg=t["FG"],
+            selectbackground=t["SEL"], selectforeground=t["SEL_FG"],
+            insertbackground=t["FG"],
+            font=("Yu Gothic UI",10), relief="flat", height=4, wrap="word")
+        self._psearch_input.frame.configure(background=t["LOG"])
+        self._psearch_input.pack(fill="x", padx=8, pady=(0,4))
+
+        file_row = ttk.Frame(lf_input); file_row.pack(fill="x", padx=8, pady=(0,4))
+        ttk.Button(file_row, text="📄 .txt/.csv 読込", command=self._psearch_load_txt).pack(side="left", padx=(0,4))
+        ttk.Button(file_row, text="📋 .json 読込",     command=self._psearch_load_json).pack(side="left", padx=(0,4))
+        ttk.Button(file_row, text="🗑 クリア",          command=lambda: self._psearch_input.delete("1.0","end")).pack(side="left", padx=(0,4))
+        ttk.Button(file_row, text="📋 リストに追加",    command=self._psearch_add_to_list).pack(side="left")
+
+        note_lbl = tk.Label(lf_input,
+            text="  ℹ 対応: .txt（カンマ区切り / 1行1プラグイン）/ .csv / .json（配列 or {\"plugins\":[...]} or キー名をプラグイン名として使用）",
+            fg=t["YEL"], bg=t["BG"], font=("Yu Gothic UI",8), anchor="w", justify="left")
+        note_lbl.pack(fill="x", padx=8, pady=(0,6))
+        self._tw(self._psearch_tk_widgets, note_lbl, ("YEL", "fg"), ("BG", "bg"))
+
+        # 設定
+        mid_row = ttk.Frame(f); mid_row.pack(fill="x", **PAD)
+        mid_row.columnconfigure(0, weight=1); mid_row.columnconfigure(1, weight=1)
+
+        lf_dl = ttk.LabelFrame(mid_row, text="🎯  ダウンロード先・Loader")
+        lf_dl.grid(row=0, column=0, sticky="nsew", padx=(0,6))
+
+        r_dir = ttk.Frame(lf_dl); r_dir.pack(fill="x", padx=10, pady=(8,4))
+        ttk.Label(r_dir, text="保存先フォルダ:").pack(side="left")
+        self._psearch_dl_dir = tk.StringVar(value=self.plugins_dir.get())
+        ttk.Entry(r_dir, textvariable=self._psearch_dl_dir).pack(side="left", padx=(4,4), fill="x", expand=True)
+        ttk.Button(r_dir, text="参照", command=lambda: self._psearch_browse(), width=4).pack(side="left", padx=(0,4))
+        ttk.Button(r_dir, text="✕", command=lambda: self._psearch_dl_dir.set(""), width=3).pack(side="left")
+
+        r_ldr = ttk.Frame(lf_dl); r_ldr.pack(fill="x", padx=10, pady=(0,8))
+        ttk.Label(r_ldr, text="Plugin Loader:").pack(side="left")
+        self._psearch_loader_var = tk.StringVar(value=self.plugin_loader.get())
+        ldr_cb = ttk.Combobox(r_ldr, textvariable=self._psearch_loader_var,
+                               values=PLUGIN_LOADER_NAMES, width=22, state="readonly")
+        ldr_cb.pack(side="left", padx=(4,0))
+
+        lf_opt = ttk.LabelFrame(mid_row, text="⚙  オプション")
+        lf_opt.grid(row=0, column=1, sticky="nsew")
+        self._psearch_auto_deps   = tk.BooleanVar(value=True)
+        self._psearch_strict_deps = tk.BooleanVar(value=False)
+        ttk.Checkbutton(lf_opt,
+            text="前提プラグインが足りなければ自動でダウンロードする",
+            variable=self._psearch_auto_deps).pack(padx=10, pady=(8,2), anchor="w")
+        ttk.Checkbutton(lf_opt,
+            text="前提プラグインのバージョンを厳密に指定する（不安定な場合はOFF）",
+            variable=self._psearch_strict_deps).pack(padx=10, pady=(0,8), anchor="w")
+
+        # 注意
+        lf_warn = ttk.LabelFrame(f, text="⚠  注意")
+        lf_warn.pack(fill="x", **PAD)
+        warn_msg = (
+            "ここではプラグイン名（またはModrinthスラッグ）を直接指定してModrinthから\n"
+            "ダウンロードします。名前が完全一致しない場合、意図しないプラグインがDLされることがあります。\n"
+            "Plugin Loaderとの互換性は保証されません。\n"
+            "必ずバックアップを取ってから使用してください。"
+        )
+        warn_lbl = tk.Label(lf_warn, text=warn_msg,
+                             justify="left", anchor="nw",
+                             fg=t["RED"], bg=t["BG"], font=("Yu Gothic UI",9))
+        warn_lbl.pack(padx=10, pady=8, fill="x", expand=True, anchor="nw")
+        self._tw(self._psearch_tk_widgets, warn_lbl, ("RED", "fg"), ("BG", "bg"))
+        def _upd_wrap(e, lbl=warn_lbl):
+            lbl.configure(wraplength=max(100, e.width-20))
+        lf_warn.bind("<Configure>", _upd_wrap)
+        ttk.Frame(f, height=8).pack()
+
+    # ── 一覧タブ ──────────────────────────────────────────────────
+    def _psearch_build_list(self, p):
+        t = self._t()
+
+        tb = ttk.Frame(p); tb.pack(fill="x", padx=6, pady=(6,2))
+        for text, w, cmd in [("全選択",6,lambda: self._psearch_sel_all(True)),
+                               ("全解除",6,lambda: self._psearch_sel_all(False))]:
+            ttk.Button(tb, text=text, width=w, command=cmd).pack(side="left", padx=(0,3))
+        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=(0,6), pady=2)
+        ttk.Button(tb, text="📋 リストに追加", command=self._psearch_add_to_list).pack(side="left", padx=(0,3))
+        ttk.Button(tb, text="🗑 選択削除",     command=self._psearch_remove_selected).pack(side="left", padx=(0,3))
+        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=(0,6), pady=2)
+        ttk.Button(tb, text="⬇ 選択をDL",     command=self._psearch_start_download).pack(side="left")
+        self._psearch_sel_label = ttk.Label(tb, text="0 / 0 件", width=12, anchor="e")
+        self._psearch_sel_label.pack(side="right", padx=4)
+
+        body = ttk.Frame(p); body.pack(fill="both", expand=True)
+
+        # 左: Treeview
+        left = ttk.Frame(body); left.pack(side="left", fill="both", expand=True)
+        cols = ("chk","name","status")
+        self._psearch_tree = ttk.Treeview(left, columns=cols, show="headings", selectmode="none")
+        self._psearch_tree.heading("chk",    text="✔")
+        self._psearch_tree.heading("name",   text="プラグイン名")
+        self._psearch_tree.heading("status", text="状態")
+        self._psearch_tree.column("chk",    width=36,  minwidth=36,  anchor="center", stretch=False)
+        self._psearch_tree.column("name",   width=240, minwidth=80,  anchor="w",      stretch=True)
+        self._psearch_tree.column("status", width=160, minwidth=60,  anchor="w",      stretch=False)
+        vsb = ttk.Scrollbar(left, orient="vertical", command=self._psearch_tree.yview)
+        self._psearch_tree.configure(yscrollcommand=vsb.set)
+        self._psearch_tree.pack(side="left", fill="both", expand=True, padx=(4,0), pady=(0,4))
+        vsb.pack(side="left", fill="y", pady=(0,4), padx=(0,4))
+        self._psearch_tree.bind("<Button-1>",        self._psearch_on_click)
+        self._psearch_tree.bind("<<TreeviewSelect>>", self._psearch_on_select)
+        self._psearch_tree.bind("<ButtonRelease-1>",  self._psearch_on_select)
+
+        # 右: サイドパネル
+        side = ttk.LabelFrame(body, text="  📋 詳細  ")
+        side.pack(side="left", fill="y", padx=(4,4), pady=(0,4))
+        side.configure(width=220); side.pack_propagate(False)
+
+        sf = tk.Frame(side, bg=t["BG"])
+        sf.pack(fill="both", expand=True)
+        self._psearch_side_frame = sf
+        self._tw(self._psearch_tk_widgets, sf, ("BG", "bg"))
+
+        lbl_sel = tk.Label(sf, text="選択中:", font=("Yu Gothic UI",8), bg=t["BG"], fg=t["FG"])
+        lbl_sel.pack(anchor="w", padx=8, pady=(8,0))
+        self._tw(self._psearch_tk_widgets, lbl_sel, ("BG", "bg"), ("FG", "fg"))
+
+        self._psearch_side_name = tk.Label(sf, text="—", wraplength=195,
+                                            font=("Yu Gothic UI",9,"bold"),
+                                            bg=t["BG"], fg=t["FG"], justify="left")
+        self._psearch_side_name.pack(anchor="w", padx=8, pady=(0,6))
+        self._tw(self._psearch_tk_widgets, self._psearch_side_name, ("BG", "bg"), ("FG", "fg"))
+
+        sep = tk.Frame(sf, height=1, bg=t["BG3"])
+        sep.pack(fill="x", padx=8, pady=4)
+        self._tw(self._psearch_tk_widgets, sep, ("BG3", "bg"))
+
+        lbl_ver = tk.Label(sf, text="バージョン:", font=("Yu Gothic UI",10), bg=t["BG"], fg=t["FG"])
+        lbl_ver.pack(anchor="w", padx=8, pady=(0,2))
+        self._tw(self._psearch_tk_widgets, lbl_ver, ("BG", "bg"), ("FG", "fg"))
+
+        self._psearch_ver_var   = tk.StringVar(value="最新")
+        self._psearch_ver_combo = ttk.Combobox(sf, textvariable=self._psearch_ver_var,
+                                                state="readonly", width=24)
+        self._psearch_ver_combo.pack(padx=8, pady=(0,2), fill="x")
+        self._psearch_ver_combo.bind("<<ComboboxSelected>>", self._psearch_on_ver_select)
+
+        self._psearch_ver_side_status = tk.Label(sf, text="", fg=t["FG"], bg=t["BG"],
+                                                  font=("Yu Gothic UI",8))
+        self._psearch_ver_side_status.pack(anchor="w", padx=8, pady=(0,4))
+        self._tw(self._psearch_tk_widgets, self._psearch_ver_side_status, ("BG", "bg"))
+
+        ttk.Button(sf, text="🔄 バージョン取得",
+                   command=self._psearch_fetch_versions).pack(padx=8, pady=(0,8), fill="x")
+
+    # ── ログタブ ──────────────────────────────────────────────────
+    def _psearch_build_log(self, p):
+        self._psearch_log_box = self._make_log_box(p)
+
+    # ── ヘルパー ──────────────────────────────────────────────────
+    def _psearch_log(self, msg, tag=""):
+        def _do():
+            at_bottom = self._psearch_log_box.yview()[1] >= 0.999
+            self._psearch_log_box.insert("end", msg+"\n", tag)
+            if at_bottom: self._psearch_log_box.see("end")
+        self.after(0, _do)
+
+    def _psearch_set_status(self, msg):
+        app = self._parent_app
+        if app and hasattr(app, "_prog_label"):
+            self.after(0, lambda: app._prog_label.config(text=msg))
+
+    def _psearch_set_progress(self, v, maximum=None):
+        app = self._parent_app
+        if app and hasattr(app, "_progress"):
+            def _do():
+                if maximum is not None: app._progress.configure(maximum=maximum)
+                app._progress.configure(value=v)
+            self.after(0, _do)
+
+    def _psearch_do_cancel(self):
+        self._psearch_cancel_flag = True
+        self._psearch_set_status("中止中...")
+        app = self._parent_app
+        if app and hasattr(app, "_cancel_btn"):
+            self.after(0, lambda: app._cancel_btn.config(state="disabled"))
+
+    def _psearch_browse(self):
+        d = filedialog.askdirectory()
+        if d: self._psearch_dl_dir.set(d)
+
+    def _psearch_parse_names(self, text):
+        import re as _re
+        return [p.strip() for p in _re.split(r"[,\n]", text) if p.strip()]
+
+    def _psearch_load_txt(self):
+        path = filedialog.askopenfilename(
+            title="テキスト/CSVファイルを選択",
+            filetypes=[("テキスト/CSV","*.txt *.csv"),("すべて","*.*")])
+        if not path: return
+        try:
+            with open(path, encoding="utf-8-sig", errors="replace") as f:
+                raw = f.read()
+            names = self._psearch_parse_names(raw)
+            if not names: messagebox.showinfo("情報","プラグイン名が見つかりませんでした"); return
+            existing = self._psearch_input.get("1.0","end").strip()
+            sep = ", " if existing else ""
+            self._psearch_input.insert("end", sep + ", ".join(names))
+            self._psearch_log(f"📄 {os.path.basename(path)} から {len(names)} 件読み込み","info")
+        except Exception as e:
+            messagebox.showerror("読込エラー", str(e))
+
+    def _psearch_load_json(self):
+        path = filedialog.askopenfilename(
+            title="JSONファイルを選択",
+            filetypes=[("JSON","*.json"),("すべて","*.*")])
+        if not path: return
+        try:
+            with open(path, encoding="utf-8-sig", errors="replace") as f:
+                data = json.load(f)
+            names = []
+            if isinstance(data, list):
+                names = [str(x).strip() for x in data if isinstance(x,str) and x.strip()]
+            elif isinstance(data, dict):
+                for key in ("plugins","plugin_list","mods","modlist"):
+                    if key in data and isinstance(data[key], list):
+                        names = [str(x).strip() for x in data[key] if isinstance(x,str) and str(x).strip()]
+                        break
+                else:
+                    names = [str(k).strip() for k in data.keys() if str(k).strip()]
+            if not names: messagebox.showinfo("情報","プラグイン名が見つかりませんでした"); return
+            existing = self._psearch_input.get("1.0","end").strip()
+            sep = ", " if existing else ""
+            self._psearch_input.insert("end", sep + ", ".join(names))
+            self._psearch_log(f"📄 {os.path.basename(path)} から {len(names)} 件読み込み","info")
+        except Exception as e:
+            messagebox.showerror("読込エラー", str(e))
+
+    def _psearch_add_to_list(self):
+        raw = self._psearch_input.get("1.0","end").strip()
+        if not raw: messagebox.showinfo("情報","プラグイン名を入力してください"); return
+        names = self._psearch_parse_names(raw)
+        if not names: messagebox.showinfo("情報","プラグイン名が見つかりませんでした"); return
+        # 既存リストをクリアしてから追加
+        for iid in self._psearch_tree.get_children():
+            self._psearch_tree.delete(iid)
+        self._psearch_items.clear()
+        self._psearch_ver_cache.clear()
+        self._psearch_cur_iid = None
+        self._psearch_side_name.config(text="—")
+        self._psearch_ver_var.set("最新")
+        self._psearch_ver_combo["values"] = ["最新"]
+        self._psearch_ver_side_status.config(text="")
+        added = 0
+        for n in names:
+            iid = f"psrc_{added}_{n}"
+            self._psearch_items.append({"iid":iid,"name":n,"status":"待機中","ver_override":None})
+            self._psearch_tree.insert("","end", iid=iid, values=("☑",n,"待機中"))
+            added += 1
+        self._psearch_upd_label()
+        if added:
+            self._psearch_log(f"✅ {added} 件をリストに追加しました","ok")
+            app = self._parent_app
+            if app and hasattr(app, "_show_toast"):
+                app._show_toast(f"プラグイン検索: {added} 件を一覧に追加しました")
+            if app and hasattr(app, "auto_switch_tab"):
+                if app.auto_switch_tab.get(): self._psearch_nb.select(1)
+            else:
+                self._psearch_nb.select(1)
+        else:
+            self._psearch_log("⚠ 追加するプラグイン名がありませんでした","warn")
+
+    def _psearch_remove_selected(self):
+        to_rm = [iid for iid in self._psearch_tree.get_children()
+                 if self._psearch_tree.set(iid,"chk") == "☑"]
+        for iid in to_rm:
+            self._psearch_tree.delete(iid)
+            self._psearch_items = [it for it in self._psearch_items if it["iid"]!=iid]
+            self._psearch_ver_cache.pop(iid, None)
+        if self._psearch_cur_iid in to_rm:
+            self._psearch_cur_iid = None
+            self._psearch_side_name.config(text="—")
+            self._psearch_ver_var.set("最新")
+            self._psearch_ver_combo["values"] = ["最新"]
+            self._psearch_ver_side_status.config(text="")
+        self._psearch_upd_label()
+
+    def _psearch_sel_all(self, v):
+        mark = "☑" if v else "☐"
+        for row in self._psearch_tree.get_children():
+            self._psearch_tree.set(row,"chk",mark)
+        self._psearch_upd_label()
+
+    def _psearch_on_click(self, e):
+        row = self._psearch_tree.identify_row(e.y)
+        if row and self._psearch_tree.identify_column(e.x) == "#1":
+            cur = self._psearch_tree.set(row,"chk")
+            self._psearch_tree.set(row,"chk","☑" if cur=="☐" else "☐")
+            self._psearch_upd_label()
+        if row:
+            self._psearch_tree.selection_set(row)
+            self._psearch_on_select(e)
+
+    def _psearch_on_select(self, e=None):
+        rows = self._psearch_tree.selection()
+        if not rows: return
+        row = rows[0]
+        if row == self._psearch_cur_iid: return
+        self._psearch_cur_iid = row
+        item = next((it for it in self._psearch_items if it["iid"]==row), None)
+        if not item: return
+        self._psearch_side_name.config(text=item["name"])
+        cached = self._psearch_ver_cache.get(row,[])
+        self._psearch_ver_combo["values"] = ["最新"] + [v["label"] for v in cached]
+        override = item.get("ver_override")
+        if override:
+            matched = next((v["label"] for v in cached if v["id"]==override), None)
+            self._psearch_ver_var.set(matched or "最新")
+        else:
+            self._psearch_ver_var.set("最新")
+        if cached:
+            self._psearch_ver_side_status.config(text=f"✅ {len(cached)} 件取得済み",
+                                                  fg=self._t()["GRN"])
+        else:
+            self._psearch_ver_side_status.config(text="← 取得ボタンでバージョン一覧を取得",
+                                                  fg=self._t()["FG"])
+
+    def _psearch_upd_label(self):
+        rows = self._psearch_tree.get_children()
+        sel  = sum(1 for r in rows if self._psearch_tree.set(r,"chk")=="☑")
+        self._psearch_sel_label.config(text=f"{sel} / {len(rows)} 件選択")
+
+    def _psearch_set_item_status(self, iid, status):
+        def _do():
+            if not self._psearch_tree.exists(iid): return
+            item = next((it for it in self._psearch_items if it["iid"]==iid), None)
+            if item: item["status"] = status
+            self._psearch_tree.item(iid, values=(
+                self._psearch_tree.set(iid,"chk"),
+                self._psearch_tree.set(iid,"name"),
+                status))
+        self.after(0, _do)
+
+    def _psearch_fetch_versions(self):
+        if not self._psearch_cur_iid: return
+        item = next((it for it in self._psearch_items if it["iid"]==self._psearch_cur_iid), None)
+        if not item: return
+        iid = self._psearch_cur_iid
+        self._psearch_ver_side_status.config(text="🔄 取得中...", fg=self._t()["YEL"])
+        self._psearch_ver_combo.config(state="disabled")
+        loader_name = self._psearch_loader_var.get()
+        loaders     = PLUGIN_LOADER_MAP.get(loader_name)
+        def _fetch():
+            results = []
+            try:
+                pid = mr_search_plugin(item.get("name",""))
+                if pid:
+                    vs = mr_get_plugin_versions(pid, loaders)
+                    results = [{"label":v.get("version_number","?"),"id":v["id"]} for v in vs]
+            except Exception: pass
+            self.after(0, lambda r=results: self._psearch_ver_cb_done(iid, r))
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _psearch_ver_cb_done(self, iid, results):
+        t = self._t()
+        self._psearch_ver_cache[iid] = results
+        self._psearch_ver_combo["values"] = ["最新"] + [v["label"] for v in results]
+        self._psearch_ver_combo.config(state="readonly")
+        item = next((it for it in self._psearch_items if it["iid"]==iid), None)
+        override = item.get("ver_override") if item else None
+        if override:
+            matched = next((v["label"] for v in results if v["id"]==override), None)
+            self._psearch_ver_var.set(matched or "最新")
+        else:
+            self._psearch_ver_var.set("最新")
+        if results:
+            self._psearch_ver_side_status.config(text=f"✅ {len(results)} 件取得", fg=t["GRN"])
+        else:
+            self._psearch_ver_side_status.config(text="⚠ バージョンなし", fg=t["RED"])
+
+    def _psearch_on_ver_select(self, e=None):
+        if not self._psearch_cur_iid: return
+        label = self._psearch_ver_var.get()
+        item  = next((it for it in self._psearch_items if it["iid"]==self._psearch_cur_iid), None)
+        if not item: return
+        t = self._t()
+        if label == "最新":
+            item["ver_override"] = None
+            self._psearch_ver_side_status.config(text="✅ 最新でDL", fg=t["GRN"])
+        else:
+            cached = self._psearch_ver_cache.get(self._psearch_cur_iid,[])
+            ver = next((v for v in cached if v["label"]==label), None)
+            item["ver_override"] = ver["id"] if ver else None
+            self._psearch_ver_side_status.config(text=f"✅ {label} を選択", fg=t["GRN"])
+
+    def _psearch_start_download(self):
+        selected = [it for it in self._psearch_items
+                    if self._psearch_tree.exists(it["iid"])
+                    and self._psearch_tree.set(it["iid"],"chk") == "☑"]
+        if not selected:
+            messagebox.showinfo("情報","ダウンロードするプラグインを選択してください"); return
+        out_dir = self._psearch_dl_dir.get().strip()
+        if not out_dir or not os.path.isdir(out_dir):
+            messagebox.showerror("エラー","有効な保存先フォルダを指定してください"); return
+        if self._psearch_running:
+            messagebox.showwarning("実行中","現在ダウンロード中です"); return
+        self._psearch_running     = True
+        self._psearch_cancel_flag = False
+        self._psearch_set_progress(0, len(selected))
+        app = self._parent_app
+        if app and hasattr(app, "_cancel_btn"): self.after(0, lambda: app._cancel_btn.config(state="normal"))
+        self._psearch_nb.select(2)
+        loader_name = self._psearch_loader_var.get()
+        loaders     = PLUGIN_LOADER_MAP.get(loader_name)
+        threading.Thread(
+            target=self._psearch_worker,
+            args=(selected, out_dir, loaders, loader_name),
+            daemon=True).start()
+
+    def _psearch_worker(self, items, out_dir, loaders, loader_name):
+        auto_deps = self._psearch_auto_deps.get()
+        done_deps = set()
+        ok_list   = []
+        fail_list = []
+        for i, item in enumerate(items):
+            if self._psearch_cancel_flag:
+                self._psearch_log("\n⏹ 中止されました","warn"); break
+            name       = item["name"]
+            ver_id     = item.get("ver_override")
+            self._psearch_set_item_status(item["iid"],"🔄 検索中...")
+            self._psearch_set_status(f"{i+1}/{len(items)}: {name[:24]}")
+            self._psearch_log(f"\n── {name} ──","info")
+            def _log(msg, tag=""): self._psearch_log(msg, tag)
+            dl_url, dl_fname, pid = find_plugin(name, _log, ver_id, loaders)
+            if dl_url and dl_fname:
+                dest = os.path.join(out_dir, dl_fname)
+                try:
+                    self._psearch_log(f"  ⬇ DL中 [{loader_name}]: {dl_fname}","")
+                    download_file(dl_url, dest,
+                                  lambda prog, n=name: self._psearch_set_status(
+                                      f"DL: {n[:18]} {prog*100:.0f}%"))
+                    self._psearch_log("  ✅ 完了","ok")
+                    self._psearch_set_item_status(item["iid"],"✅ 完了")
+                    ok_list.append(name)
+                    if auto_deps:
+                        for dep_name in []:  # find_plugin はdep情報を返さないため空
+                            if not dep_name or dep_name in done_deps: continue
+                            done_deps.add(dep_name)
+                            du, df, _ = find_plugin(dep_name, _log, loaders=loaders)
+                            if du and df and not os.path.exists(os.path.join(out_dir,df)):
+                                download_file(du, os.path.join(out_dir,df))
+                                self._psearch_log(f"  🔗 前提DL: {df}","ok")
+                                ok_list.append(f"[前提] {dep_name}")
+                except Exception as e:
+                    self._psearch_log(f"  ❌ DL失敗: {e}","err")
+                    if os.path.exists(dest):
+                        try: os.remove(dest)
+                        except Exception: pass
+                    self._psearch_set_item_status(item["iid"],"❌ 失敗")
+                    fail_list.append(name)
+            else:
+                self._psearch_set_item_status(item["iid"],"❌ 見つからず")
+                fail_list.append(name)
+            self._psearch_set_progress(i+1)
+
+        self._psearch_log(f"\n{'═'*40}","info")
+        self._psearch_log(f"✅ 成功: {len(ok_list)} 件","ok")
+        for n in ok_list: self._psearch_log(f"   ✓ {n}","ok")
+        if fail_list:
+            self._psearch_log(f"❌ 失敗: {len(fail_list)} 件","err")
+            for n in fail_list: self._psearch_log(f"   ✗ {n}","err")
+        else:
+            self._psearch_log("🎉 全て完了！","ok")
+        self._psearch_set_status("完了" if not self._psearch_cancel_flag else "中止")
+        self._psearch_running = False
+        app2 = self._parent_app
+        if app2 and hasattr(app2, "_cancel_btn"): self.after(0, lambda: app2._cancel_btn.config(state="disabled"))
+        msg = f"✅ 成功: {len(ok_list)} 件\n❌ 失敗: {len(fail_list)} 件"
+        if fail_list:
+            msg += "\n\n失敗:\n" + "\n".join(f"  • {n}" for n in fail_list)
+        self.after(0, lambda: messagebox.showinfo("完了", msg))
 
     def _build_inspect(self, p):
         """検査タブ: JAR を読み込み各プラグインの対応loaderをModrinthで確認する"""
@@ -517,10 +1040,9 @@ class PluginUpdaterApp(ttk.Frame):
             lbl = tk.Label(legend, text=label, fg=t[color_key], bg=t["BG"],
                            font=("Yu Gothic UI", 8))
             lbl.pack(side="left", padx=(0, 12))
-            self._tk_widgets.append((lbl, color_key, "fg"))
-            self._tk_widgets.append((lbl, "BG", "bg"))
+            self._tw(self._tk_widgets, lbl, (color_key, "fg"), ("BG", "bg"))
         legend_bg = legend
-        self._tk_widgets.append((legend_bg, "BG", "bg"))
+        self._tw(self._tk_widgets, legend_bg, ("BG", "bg"))
 
         # ── Treeview ──
         cols = ("name", "loaders", "judge")
@@ -604,10 +1126,6 @@ class PluginUpdaterApp(ttk.Frame):
 
         self._inspect_running = False
 
-        self._inspect_running = False
-
-        self._inspect_running = False
-
     def _ins_insert(self, name, iid, loaders_str, tag):
         judge_map = {
             "plugin":  "✅ Plugin Loader",
@@ -623,27 +1141,36 @@ class PluginUpdaterApp(ttk.Frame):
                               tags=(tag,))
 
     def _build_log(self, p):
-        t = self._t()
-        self._log_box = scrolledtext.ScrolledText(
-            p,
-            bg=t["LOG"], fg=t["FG"],
-            selectbackground=t["SEL"], selectforeground=t["SEL_FG"],
-            insertbackground=t["FG"],
-            font=("Consolas", 9), relief="flat", wrap="word",
-        )
-        # ScrolledText.frame は tk.Frame（スクロールバーと Text を包むコンテナ）
-        # bg を直接設定して apply_theme でも更新できるよう登録する
-        self._log_box.frame.configure(background=t["LOG"])
-        self._tk_widgets.append((self._log_box.frame, "LOG", "bg"))
-        self._log_box.pack(fill="both", expand=True, padx=8, pady=8)
+        self._log_box = self._make_log_box(p)
+        self._tw(self._tk_widgets, self._log_box.frame, ("LOG", "bg"))
         self._refresh_log_tags()
-        ttk.Button(p, text="クリア", command=lambda: self._log_box.delete("1.0", "end")).pack(pady=(0, 8))
 
     # ── テーマ取得ヘルパー ────────────────────────────────────────────────────
+
+    def _make_log_box(self, parent):
+        """ScrolledText ログボックスを生成して parent にパックし返す"""
+        t = self._t()
+        box = scrolledtext.ScrolledText(
+            parent, bg=t["LOG"], fg=t["FG"],
+            selectbackground=t["SEL"], selectforeground=t["SEL_FG"],
+            insertbackground=t["FG"],
+            font=("Consolas",9), relief="flat", wrap="word")
+        box.frame.configure(background=t["LOG"])
+        box.pack(fill="both", expand=True, padx=8, pady=8)
+        for tag, key in [("ok","GRN"),("err","RED"),("info","ACC"),("warn","YEL")]:
+            box.tag_config(tag, foreground=t[key])
+        ttk.Button(parent, text="クリア",
+                   command=lambda b=box: b.delete("1.0","end")).pack(pady=(0,8))
+        return box
 
     def _t(self):
         """現在のテーマ辞書を返す"""
         return THEMES[self._theme]
+
+    def _tw(self, wlist, widget, *pairs):
+        """(color_key, attr) のペアを wlist に一括登録するヘルパー"""
+        for color_key, attr in pairs:
+            wlist.append((widget, color_key, attr))
 
     def _refresh_log_tags(self):
         """ログボックスのタグ色を現在のテーマで更新"""
@@ -683,6 +1210,34 @@ class PluginUpdaterApp(ttk.Frame):
 
         # 5) 検査タブのTreeviewタグ色を更新
         self._refresh_inspect_tags()
+
+        # 6) プラグイン検索タブの tk.Label 等を更新
+        if hasattr(self, "_psearch_tk_widgets"):
+            for widget, color_key, attr in self._psearch_tk_widgets:
+                try:
+                    widget.config(**{attr: t[color_key]})
+                except Exception:
+                    pass
+        if hasattr(self, "_psearch_log_box"):
+            self._psearch_log_box.config(
+                bg=t["LOG"], fg=t["FG"],
+                selectbackground=t["SEL"], selectforeground=t["SEL_FG"],
+                insertbackground=t["FG"])
+            self._psearch_log_box.frame.configure(background=t["LOG"])
+            for tag, key in [("ok","GRN"),("err","RED"),("info","ACC"),("warn","YEL")]:
+                self._psearch_log_box.tag_config(tag, foreground=t[key])
+        if hasattr(self, "_psearch_input"):
+            self._psearch_input.config(
+                bg=t["LOG"], fg=t["FG"],
+                selectbackground=t["SEL"], selectforeground=t["SEL_FG"],
+                insertbackground=t["FG"])
+            self._psearch_input.frame.configure(background=t["LOG"])
+        if hasattr(self, "_psearch_ver_side_status"):
+            txt = self._psearch_ver_side_status.cget("text")
+            if txt.startswith("✅"):   self._psearch_ver_side_status.config(fg=t["GRN"])
+            elif txt.startswith("⚠"): self._psearch_ver_side_status.config(fg=t["RED"])
+            elif txt.startswith("🔄"): self._psearch_ver_side_status.config(fg=t["YEL"])
+            else:                       self._psearch_ver_side_status.config(fg=t["FG"])
 
     def _refresh_ver_status_color(self):
         """バージョン状態ラベルの fg を現在テーマで正しく設定しなおす"""
