@@ -84,13 +84,16 @@ MC-Pack-Updater/
 
 ### アーキテクチャ概要
 
-- **`mod_updater.py`** ― アプリのエントリポイント。`tkinter` で GUI を構築し、
+  - **`mod_updater.py`** ― アプリのエントリポイント。`tkinter` で GUI を構築し、
   Modrinth / CurseForge API を `urllib` で直接叩く。GitHubボタンの画像表示に `Pillow` を使用。
   PyInstaller でのバンドルを容易にするため外部ライブラリの使用は最小限にしている。
+  親Notebook（⛏ MOD / 🔌 プラグイン / 🌐 全体設定）の下に、MOD タブが子Notebook
+  （⚙ 設定 / 📦 一覧 / 📋 ログ / 🔍 Mod検索）を持つ2階層構造。
 - **`plugin_updater.py`** ― プラグインタブの実装。EXE ビルド時に
   `--add-data` でバンドルされ、`mod_updater.py` から動的に読み込まれる。
   埋め込み時は `parent_app` 経由で `mod_updater.py` の進捗バー・中止ボタンを共有する。
-  タブ構成: ⚙ 設定 / 🔌 プラグイン一覧 / 🔍 検査 / 📋 ログ。
+  タブ構成: ⚙ 設定 / 🔌 プラグイン一覧 / 📋 ログ / 🔍 検査 / 🔎 プラグイン検索。
+  共通ヘルパー `_t()` / `_tw()` / `_make_log_box()` でテーマ管理・UIビルドを共通化。
 
 ### Plugin Loader選択の仕組み
 
@@ -109,7 +112,29 @@ PLUGIN_LOADERS = [
 - 「すべて（自動）」選択時はPlugin Loader用とプロキシ用が混在する可能性を設定画面で警告します。
 - 新しいエントリを追加する場合は `PLUGIN_LOADERS` リストのみ編集してください。
 
-### 検査タブの仕組み
+### Mod検索タブの仕組み
+
+`App._build_mod_search_tab` / `_search_build_settings` / `_search_build_list` / `_search_build_log` で実装。子Notebook（⚙ 設定 / 📋 一覧 / 📄 ログ）構造。
+
+- 対象タイプ（Mod / ResourcePack / Shader）をラジオボタンで切替え → `find_dl_info()` に渡す `mr_type` / `cf_class` を動的に変換。
+- .txt/.csv 読込は `_parse_mod_names()`（カンマ・改行区切り）、.json 読込は配列 / `{"mods":[...]}` / オブジェクトキー の3形式対応。
+- バージョン個別指定は `_search_ver_cache`（iid → バージョンリスト）と `ver_override` フィールドで管理。
+- リスト出力は `_export_list(panel, kind_key)` で処理。.txt は1行1項目、.csv はカンマ区切り。
+
+### プラグイン検索タブの仕組み（plugin_updater.py）
+
+`PluginUpdaterApp._build_plugin_search` で実装。構造はMod検索タブと同一。
+`find_plugin()` でModrinthを検索し、`mr_get_plugin_versions()` でバージョン一覧を取得する。
+
+### 共通ヘルパー
+
+`PluginUpdaterApp` に以下の共通ヘルパーを定義しています。`App`（mod_updater.py）も同様のものを持ちます。
+
+| ヘルパー | 役割 |
+|---|---|
+| `_t()` | 現在のテーマ辞書（`THEMES[self._theme]`）を返す |
+| `_tw(wlist, widget, *pairs)` | `(color_key, attr)` ペアを `wlist` に一括登録 |
+| `_make_log_box(parent)` | ScrolledText ログボックスを生成・パックして返す |
 
 `PluginUpdaterApp._build_inspect` / `_inspect_worker` で実装。
 
@@ -180,7 +205,7 @@ pyinstaller --onedir --windowed --noupx --name "MC-Pack-Updater" `
 Compress-Archive -Path dist\MC-Pack-Updater -DestinationPath dist\MC-Pack-Updater.zip
 ```
 
-> **現在のバージョン: v1.3.1**
+> **現在のバージョン: v1.4.0**
 
 ### onefile（単体 EXE）
 
