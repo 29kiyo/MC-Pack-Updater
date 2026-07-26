@@ -1,6 +1,8 @@
 import os, re, sys, json, zipfile, hashlib, threading, tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import urllib.request, urllib.parse, webbrowser
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 MODRINTH_API   = "https://api.modrinth.com/v2"
 CURSEFORGE_API = "https://api.curseforge.com/v1"
@@ -516,6 +518,7 @@ class App(tk.Tk):
         self.toast_enabled    = tk.BooleanVar(value=cfg.get("toast_enabled",True))
         self.toast_duration   = tk.IntVar(value=cfg.get("toast_duration",3))
         self.backup_mode      = tk.BooleanVar(value=cfg.get("backup_mode", False))
+        self.concurrency      = tk.IntVar(value=cfg.get("concurrency", 3))
         self.backup_dir       = tk.StringVar(value=cfg.get("backup_dir", ""))
         self._toast_win       = None   # 現在表示中のトースト
         self._cf_key_showing = False
@@ -681,6 +684,20 @@ class App(tk.Tk):
         lf1 = ttk.LabelFrame(f, text="📦  一覧タブ"); lf1.pack(fill="x", pady=(0,10))
         ttk.Checkbutton(lf1, text="読み込み完了後に自動で一覧タブへ移動する",
                          variable=self.auto_switch_tab).pack(padx=10, pady=8, anchor="w")
+
+        # 並列処理
+        lf3 = ttk.LabelFrame(f, text="⚡  並列処理"); lf3.pack(fill="x", pady=(0,10))
+        conc_row = ttk.Frame(lf3); conc_row.pack(fill="x", padx=10, pady=(8,4))
+        ttk.Label(conc_row, text="同時実行数:").pack(side="left")
+        ttk.Spinbox(conc_row, from_=1, to=10, textvariable=self.concurrency,
+                     width=5, state="readonly").pack(side="left", padx=(6,4))
+        ttk.Label(conc_row, text="（1〜10。ネットワークI/Oを並列化して高速化します）").pack(side="left")
+        conc_note = tk.Label(
+            lf3,
+            text="  ℹ  大きくしすぎるとAPI側のレート制限にかかりやすくなります。不安定な場合は1〜3程度に戻してください。",
+            bg=t["BG"], fg=t["YEL"], font=("Yu Gothic UI", 8), anchor="w", justify="left"
+        )
+        conc_note.pack(fill="x", padx=10, pady=(0,8))
 
         # トースト通知
         lf2 = ttk.LabelFrame(f, text="🔔  通知"); lf2.pack(fill="x", pady=(0,10))
@@ -1206,6 +1223,8 @@ class App(tk.Tk):
         ttk.Button(tb, text="🗑 選択削除",     command=self._search_remove_selected).pack(side="left", padx=(0,3))
         ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=(0,6), pady=2)
         ttk.Button(tb, text="⬇ 選択をDL",     command=self._search_start_download).pack(side="left")
+        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=(0,6), pady=2)
+        ttk.Button(tb, text="📤 リスト出力",   command=self._search_export_list).pack(side="left")
         self._search_sel_label = ttk.Label(tb, text="0 / 0 件", width=12, anchor="e")
         self._search_sel_label.pack(side="right", padx=4)
 
@@ -1615,13 +1634,17 @@ class App(tk.Tk):
         ok_list   = []
         fail_list = []
 
-        for i, item in enumerate(items):
+        deps_lock = threading.Lock()
+        progress_lock = threading.Lock()
+        progress_done = [0]
+
+        def _process_item(idx, item):
             if self._search_cancel_flag:
-                self._search_log("\n⏹ 中止されました","warn"); break
+                return
             name         = item["name"]
             ver_override = item.get("ver_override")
             self._search_set_item_status(item["iid"],"🔄 検索中...")
-            self._search_set_status(f"{i+1}/{len(items)}: {name[:24]}")
+            self._search_set_status(f"{idx+1}/{len(items)}: {name[:24]}")
             self._search_log(f"\n── {name} ──","info")
 
             def _log(msg, tag=""): self._search_log(msg, tag)
@@ -1644,8 +1667,9 @@ class App(tk.Tk):
                     ok_list.append(name)
                     if auto_deps and version_obj:
                         for dep_pid, dep_vid in mr_get_deps(version_obj):
-                            if dep_pid in done_deps: continue
-                            done_deps.add(dep_pid)
+                            with deps_lock:
+                                if dep_pid in done_deps: continue
+                                done_deps.add(dep_pid)
                             self._search_log(f"  🔗 依存Mod: {dep_pid}","info")
                             try:
                                 du = df = None
@@ -1678,7 +1702,18 @@ class App(tk.Tk):
                 self._search_set_item_status(item["iid"],"❌ 見つからず")
                 fail_list.append(name)
 
-            self._search_set_progress(i + 1)
+            with progress_lock:
+                progress_done[0] += 1
+                self._search_set_progress(progress_done[0])
+
+        max_workers = max(1, min(getattr(self, "concurrency", tk.IntVar(value=3)).get(), len(items) or 1))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_process_item, i, item) for i, item in enumerate(items)]
+            for fut in as_completed(futures):
+                fut.result()
+
+        if self._search_cancel_flag:
+            self._search_log("\n⏹ 中止されました","warn")
 
         self._search_log(f"\n{'═'*40}","info")
         self._search_log(f"✅ 成功: {len(ok_list)} 件","ok")
@@ -1838,9 +1873,11 @@ class App(tk.Tk):
             messagebox.showerror("エラー","CurseForgeを使用するにはAPIキーが必要です"); return False
         return True
 
-    def _export_list(self, panel, kind_key):
+    def _export_list(self, panel, kind_key, mc_version=None):
         """パネルの一覧をテキストファイルに出力する。
         kind_key: "mod" / "resourcepack" / "shader" / "plugin"
+        mc_version: ファイル名に使うMCバージョン。Noneの場合は self.target_version を使用。
+                    kind_key=="plugin" のときはファイル名に含めない。
         """
         # 対象アイテム取得
         if kind_key == "plugin":
@@ -1856,13 +1893,15 @@ class App(tk.Tk):
             lines = [it.get("name") or it.get("display_name") or it.get("filename","")
                      for it in panel.items]
 
-        label_map = {
-            "mod":          "Mod",
-            "resourcepack": "ResourcePack",
-            "shader":       "Shader",
-            "plugin":       "Plugin",
-        }
-        default_name = f"{label_map.get(kind_key, kind_key)}_list.txt"
+        # ファイル名: {mcバージョン}_{packtype}_{yyyy-mm-dd_hh-mm-ss}.txt
+        # プラグインはMCバージョンに紐付かないため省略: {packtype}_{yyyy-mm-dd_hh-mm-ss}.txt
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        if kind_key == "plugin":
+            default_name = f"plugin_{ts}.txt"
+        else:
+            ver = mc_version if mc_version is not None else self.target_version.get()
+            ver = ver or "unknown"
+            default_name = f"{ver}_{kind_key}_{ts}.txt"
 
         path = filedialog.asksaveasfilename(
             title="リストを保存",
@@ -1880,7 +1919,36 @@ class App(tk.Tk):
                 content = "\n".join(lines) + "\n"
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
-            self._log(f"📤 {label_map.get(kind_key,kind_key)}リスト出力: {os.path.basename(path)} ({len(lines)} 件)", "ok", "sys")
+            self._log(f"📤 リスト出力: {os.path.basename(path)} ({len(lines)} 件)", "ok", "sys")
+            messagebox.showinfo("完了", f"{len(lines)} 件を出力しました\n{path}")
+        except Exception as e:
+            messagebox.showerror("出力エラー", str(e))
+
+    def _search_export_list(self):
+        """Mod検索タブの一覧を出力する（選択中の対象タイプ・MCバージョンを使用）"""
+        type_map = {"Mod": "mod", "ResourcePack": "resourcepack", "Shader": "shader"}
+        kind_key = type_map.get(self._search_mr_type.get(), "mod")
+        if not self._search_items:
+            messagebox.showinfo("情報", "リストが空です\nまず「📋 リストに追加」を実行してください"); return
+        lines = [it["name"] for it in self._search_items]
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        ver = self.search_version.get() or "unknown"
+        default_name = f"{ver}_{kind_key}_{ts}.txt"
+        path = filedialog.asksaveasfilename(
+            title="リストを保存",
+            defaultextension=".txt",
+            initialfile=default_name,
+            filetypes=[("テキストファイル","*.txt"),("CSVファイル","*.csv"),("すべて","*.*")]
+        )
+        if not path: return
+        try:
+            if path.lower().endswith(".csv"):
+                content = ", ".join(lines) + "\n"
+            else:
+                content = "\n".join(lines) + "\n"
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            self._log(f"📤 リスト出力: {os.path.basename(path)} ({len(lines)} 件)", "ok", "sys")
             messagebox.showinfo("完了", f"{len(lines)} 件を出力しました\n{path}")
         except Exception as e:
             messagebox.showerror("出力エラー", str(e))
@@ -2130,13 +2198,17 @@ class App(tk.Tk):
             else:
                 self._log(f"💾 バックアップモード ON → v{mc_ver}_{_backup_ts}/", "info", "sys")
 
-        for i, (item, out_dir, mr_type, cf_class) in enumerate(tasks):
+        deps_lock = threading.Lock()
+        progress_lock = threading.Lock()
+        progress_done = [0]
+
+        def _process_task(idx, item, out_dir, mr_type, cf_class):
             if self._cancel_flag:
-                self._log("\n⏹ ユーザーによって中止されました","warn","mod"); break
+                return
             name = item.get("name", item["filename"])
             key  = {"mod":"mod","resourcepack":"rp","shader":"shader"}.get(mr_type,"mod")
             kind = {"mod":"Mod","rp":"RP","shader":"Shader"}[key]
-            self._set_status(f"{i+1}/{len(tasks)}: [{kind}] {name[:22]}")
+            self._set_status(f"{idx+1}/{len(tasks)}: [{kind}] {name[:22]}")
             self._log(f"\n── {name} ──","info",key)
             def _log(msg, tag="", _k=key): self._log(msg, tag, _k)
 
@@ -2158,8 +2230,9 @@ class App(tk.Tk):
                     results[key]["ok"].append(name)
                     if mr_type == MR_MOD and auto_deps and version_obj:
                         for dep_pid, dep_vid in mr_get_deps(version_obj):
-                            if dep_pid in done_deps: continue
-                            done_deps.add(dep_pid)
+                            with deps_lock:
+                                if dep_pid in done_deps: continue
+                                done_deps.add(dep_pid)
                             self._log(f"  🔗 依存Mod: {dep_pid}","info",key)
                             try:
                                 du = df = None
@@ -2207,7 +2280,21 @@ class App(tk.Tk):
                     try: os.remove(item["path"]); self._log(f"  🗑 失敗ファイル削除: {item['filename']}","warn",key)
                     except Exception:  # 削除失敗は処理継続に影響しないため無視
                         pass
-            self._set_progress(i+1)
+            with progress_lock:
+                progress_done[0] += 1
+                self._set_progress(progress_done[0])
+
+        # 並列処理数（全体設定タブで変更可能。ネットワークI/O待ちがほとんどのため
+        # GILがあってもスレッド並列化で明確に高速化される）
+        max_workers = max(1, min(getattr(self, "concurrency", tk.IntVar(value=3)).get(), len(tasks) or 1))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_process_task, i, item, out_dir, mr_type, cf_class)
+                       for i, (item, out_dir, mr_type, cf_class) in enumerate(tasks)]
+            for fut in as_completed(futures):
+                fut.result()  # 例外があればここで再送出される
+
+        if self._cancel_flag:
+            self._log("\n⏹ ユーザーによって中止されました","warn","mod")
 
         total_ok   = sum(len(v["ok"])   for v in results.values())
         total_fail = sum(len(v["fail"]) for v in results.values())
@@ -2307,6 +2394,7 @@ class App(tk.Tk):
             "toast_enabled":  self.toast_enabled.get(),
             "toast_duration": self.toast_duration.get(),
             "backup_mode":    self.backup_mode.get(),
+            "concurrency":    self.concurrency.get(),
             "backup_dir":     self.backup_dir.get(),
             "theme":          self._theme,
             "search_dl_dir":     self.search_dl_dir.get(),

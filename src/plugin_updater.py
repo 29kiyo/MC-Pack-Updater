@@ -1,6 +1,8 @@
 import os, re, sys, json, zipfile, threading, tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import urllib.request, urllib.parse
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 MODRINTH_API = "https://api.modrinth.com/v2"
 CONFIG_FILE  = os.path.join(os.path.expanduser("~"), ".mc_pack_updater_config.json")
@@ -271,6 +273,7 @@ class PluginUpdaterApp(ttk.Frame):
         self.delete_failed = tk.BooleanVar(value=cfg.get("plugin_delete_failed", False))
         self.auto_deps     = tk.BooleanVar(value=cfg.get("plugin_auto_deps", True))
         self.plugin_loader = tk.StringVar(value=cfg.get("plugin_loader", "すべて（自動）"))
+        self.concurrency   = tk.IntVar(value=cfg.get("concurrency", 3))
 
         self.plugin_list    = []
         self._ver_overrides = {}   # filename -> {"id": ver_id, "label": str} or None
@@ -369,6 +372,11 @@ class PluginUpdaterApp(ttk.Frame):
             ("前提プラグインが足りなければ自動でダウンロードする",          self.auto_deps),
         ]:
             ttk.Checkbutton(lf4, text=txt, variable=var).pack(padx=10, pady=2, anchor="w")
+        conc_row = ttk.Frame(lf4); conc_row.pack(fill="x", padx=10, pady=(4,6), anchor="w")
+        ttk.Label(conc_row, text="並列処理 同時実行数:").pack(side="left")
+        ttk.Spinbox(conc_row, from_=1, to=10, textvariable=self.concurrency,
+                     width=5, state="readonly").pack(side="left", padx=(6,4))
+        ttk.Label(conc_row, text="（1〜10。mod_updater.py側の全体設定と共有されます）").pack(side="left")
 
         # 注意
         lf5 = ttk.LabelFrame(f, text="⚠  注意")
@@ -407,6 +415,8 @@ class PluginUpdaterApp(ttk.Frame):
         ttk.Separator(top, orient="vertical").pack(side="left", fill="y", padx=(0, 6), pady=2)
         ttk.Button(top, text="📂 読込", width=7, command=self._load_plugins).pack(side="left", padx=(0, 3))
         ttk.Button(top, text="⬇ 更新", width=7, command=self._start_update).pack(side="left")
+        ttk.Separator(top, orient="vertical").pack(side="left", fill="y", padx=(0, 6), pady=2)
+        ttk.Button(top, text="📤 リスト出力", command=self._export_plugin_list).pack(side="left")
         self._sel_label = ttk.Label(top, text="0 / 0 件", width=12, anchor="e")
         self._sel_label.pack(side="right", padx=4)
 
@@ -627,6 +637,8 @@ class PluginUpdaterApp(ttk.Frame):
         ttk.Button(tb, text="🗑 選択削除",     command=self._psearch_remove_selected).pack(side="left", padx=(0,3))
         ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=(0,6), pady=2)
         ttk.Button(tb, text="⬇ 選択をDL",     command=self._psearch_start_download).pack(side="left")
+        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=(0,6), pady=2)
+        ttk.Button(tb, text="📤 リスト出力",   command=self._psearch_export_list).pack(side="left")
         self._psearch_sel_label = ttk.Label(tb, text="0 / 0 件", width=12, anchor="e")
         self._psearch_sel_label.pack(side="right", padx=4)
 
@@ -691,6 +703,32 @@ class PluginUpdaterApp(ttk.Frame):
 
         ttk.Button(sf, text="🔄 バージョン取得",
                    command=self._psearch_fetch_versions).pack(padx=8, pady=(0,8), fill="x")
+
+    def _psearch_export_list(self):
+        """プラグイン検索タブの一覧を出力する（プラグインはMCバージョンをファイル名に含めない）"""
+        if not self._psearch_items:
+            messagebox.showinfo("情報", "リストが空です\nまず「📋 リストに追加」を実行してください"); return
+        lines = [it["name"] for it in self._psearch_items]
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        default_name = f"plugin_{ts}.txt"
+        path = filedialog.asksaveasfilename(
+            title="リストを保存",
+            defaultextension=".txt",
+            initialfile=default_name,
+            filetypes=[("テキストファイル","*.txt"),("CSVファイル","*.csv"),("すべて","*.*")]
+        )
+        if not path: return
+        try:
+            if path.lower().endswith(".csv"):
+                content = ", ".join(lines) + "\n"
+            else:
+                content = "\n".join(lines) + "\n"
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            self._psearch_log(f"📤 リスト出力: {os.path.basename(path)} ({len(lines)} 件)", "ok")
+            messagebox.showinfo("完了", f"{len(lines)} 件を出力しました\n{path}")
+        except Exception as e:
+            messagebox.showerror("出力エラー", str(e))
 
     # ── ログタブ ──────────────────────────────────────────────────
     def _psearch_build_log(self, p):
@@ -961,13 +999,17 @@ class PluginUpdaterApp(ttk.Frame):
         done_deps = set()
         ok_list   = []
         fail_list = []
-        for i, item in enumerate(items):
+        deps_lock = threading.Lock()
+        progress_lock = threading.Lock()
+        progress_done = [0]
+
+        def _process_item(idx, item):
             if self._psearch_cancel_flag:
-                self._psearch_log("\n⏹ 中止されました","warn"); break
+                return
             name       = item["name"]
             ver_id     = item.get("ver_override")
             self._psearch_set_item_status(item["iid"],"🔄 検索中...")
-            self._psearch_set_status(f"{i+1}/{len(items)}: {name[:24]}")
+            self._psearch_set_status(f"{idx+1}/{len(items)}: {name[:24]}")
             self._psearch_log(f"\n── {name} ──","info")
             def _log(msg, tag=""): self._psearch_log(msg, tag)
             dl_url, dl_fname, pid = find_plugin(name, _log, ver_id, loaders)
@@ -983,8 +1025,9 @@ class PluginUpdaterApp(ttk.Frame):
                     ok_list.append(name)
                     if auto_deps:
                         for dep_name in []:  # find_plugin はdep情報を返さないため空
-                            if not dep_name or dep_name in done_deps: continue
-                            done_deps.add(dep_name)
+                            with deps_lock:
+                                if not dep_name or dep_name in done_deps: continue
+                                done_deps.add(dep_name)
                             du, df, _ = find_plugin(dep_name, _log, loaders=loaders)
                             if du and df and not os.path.exists(os.path.join(out_dir,df)):
                                 download_file(du, os.path.join(out_dir,df))
@@ -1000,7 +1043,18 @@ class PluginUpdaterApp(ttk.Frame):
             else:
                 self._psearch_set_item_status(item["iid"],"❌ 見つからず")
                 fail_list.append(name)
-            self._psearch_set_progress(i+1)
+            with progress_lock:
+                progress_done[0] += 1
+                self._psearch_set_progress(progress_done[0])
+
+        max_workers = max(1, min(getattr(self, "concurrency", tk.IntVar(value=3)).get(), len(items) or 1))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_process_item, i, item) for i, item in enumerate(items)]
+            for fut in as_completed(futures):
+                fut.result()
+
+        if self._psearch_cancel_flag:
+            self._psearch_log("\n⏹ 中止されました","warn")
 
         self._psearch_log(f"\n{'═'*40}","info")
         self._psearch_log(f"✅ 成功: {len(ok_list)} 件","ok")
@@ -1407,6 +1461,32 @@ class PluginUpdaterApp(ttk.Frame):
 
     # ── 読み込み ──────────────────────────────────────────────────────────────
 
+    def _export_plugin_list(self):
+        """プラグイン一覧タブの一覧を出力する（MCバージョンをファイル名に含めない）"""
+        if not self.plugin_list:
+            messagebox.showinfo("情報", "リストが空です\nまず「📂 読み込む」を実行してください"); return
+        lines = [it.get("name", it.get("filename","")) for it in self.plugin_list]
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        default_name = f"plugin_{ts}.txt"
+        path = filedialog.asksaveasfilename(
+            title="リストを保存",
+            defaultextension=".txt",
+            initialfile=default_name,
+            filetypes=[("テキストファイル","*.txt"),("CSVファイル","*.csv"),("すべて","*.*")]
+        )
+        if not path: return
+        try:
+            if path.lower().endswith(".csv"):
+                content = ", ".join(lines) + "\n"
+            else:
+                content = "\n".join(lines) + "\n"
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            self._log(f"📤 リスト出力: {os.path.basename(path)} ({len(lines)} 件)", "ok")
+            messagebox.showinfo("完了", f"{len(lines)} 件を出力しました\n{path}")
+        except Exception as e:
+            messagebox.showerror("出力エラー", str(e))
+
     def _load_plugins(self):
         d = self.plugins_dir.get().strip()
         if not d or not os.path.isdir(d):
@@ -1507,14 +1587,17 @@ class PluginUpdaterApp(ttk.Frame):
             """バックアップONのときはバックアップフォルダ、OFFは通常フォルダ"""
             return _backup_dir if backup_on else out_dir
 
-        for i, plugin in enumerate(plugins):
+        deps_lock = threading.Lock()
+        progress_lock = threading.Lock()
+        progress_done = [0]
+
+        def _process_plugin(idx, plugin):
             if self._cancel_flag:
-                self._log("\n⏹ 中止されました", "warn")
-                break
+                return
             name     = plugin.get("name", plugin["filename"])
             override = self._ver_overrides.get(plugin["filename"])
             ver_id   = override["id"] if override else None
-            self._set_status(f"{i + 1}/{len(plugins)}: {name[:24]}")
+            self._set_status(f"{idx + 1}/{len(plugins)}: {name[:24]}")
             self._log(f"\n── {name} ──", "info")
 
             def _log(msg, tag=""): self._log(msg, tag)
@@ -1531,9 +1614,10 @@ class PluginUpdaterApp(ttk.Frame):
                     ok_list.append(name)
                     if auto_deps:
                         for dep_name in plugin.get("depend", []):
-                            if not dep_name or dep_name in done_deps:
-                                continue
-                            done_deps.add(dep_name)
+                            with deps_lock:
+                                if not dep_name or dep_name in done_deps:
+                                    continue
+                                done_deps.add(dep_name)
                             if any(p.get("name", "").lower() == dep_name.lower() for p in self.plugin_list):
                                 self._log(f"  🔗 前提プラグイン既存: {dep_name}", "ok")
                                 continue
@@ -1554,7 +1638,18 @@ class PluginUpdaterApp(ttk.Frame):
                     except Exception:  # 削除失敗は処理継続に影響しないため無視
                         pass
 
-            self._set_progress(i + 1)
+            with progress_lock:
+                progress_done[0] += 1
+                self._set_progress(progress_done[0])
+
+        max_workers = max(1, min(getattr(self, "concurrency", tk.IntVar(value=3)).get(), len(plugins) or 1))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_process_plugin, i, plugin) for i, plugin in enumerate(plugins)]
+            for fut in as_completed(futures):
+                fut.result()
+
+        if self._cancel_flag:
+            self._log("\n⏹ 中止されました", "warn")
 
         self._log(f"\n{'═' * 40}", "info")
         self._log(f"✅ 成功: {len(ok_list)} 件", "ok")
@@ -1613,6 +1708,7 @@ class PluginUpdaterApp(ttk.Frame):
             "plugin_delete_failed": self.delete_failed.get(),
             "plugin_auto_deps":     self.auto_deps.get(),
             "plugin_loader":        self.plugin_loader.get(),
+            "concurrency":          self.concurrency.get(),
         })
         save_config(cfg)
 
