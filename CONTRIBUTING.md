@@ -205,7 +205,7 @@ pyinstaller --onedir --windowed --noupx --name "MC-Pack-Updater" `
 Compress-Archive -Path dist\MC-Pack-Updater -DestinationPath dist\MC-Pack-Updater.zip
 ```
 
-> **現在のバージョン: v1.4.0**
+> **現在のバージョン: v1.5.0**
 
 ### onefile（単体 EXE）
 

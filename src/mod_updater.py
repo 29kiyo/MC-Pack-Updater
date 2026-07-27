@@ -565,8 +565,8 @@ class App(tk.Tk):
             self._icon_path = ip if os.path.exists(ip) else None
             if self._icon_path: self.iconbitmap(default=self._icon_path)
         except Exception: self._icon_path = None
-        self.geometry("1350x780"); self.configure(bg=BG); self.resizable(True, True)
-        self.minsize(1150, 700)
+        self.geometry("1150x820"); self.configure(bg=BG); self.resizable(True, True)
+        self.minsize(1000, 750)
 
         cfg = load_config()
         self.target_version = tk.StringVar(value=cfg.get("target_version","1.21.4"))
@@ -1203,20 +1203,19 @@ class App(tk.Tk):
             ttk.Radiobutton(r_type, text=lbl, variable=self._search_mr_type,
                             value=val).pack(side="left", padx=(6,0))
 
-        r_ver = ttk.Frame(lf_dl); r_ver.pack(fill="x", padx=10, pady=(8,2))
+        r_ver = ttk.Frame(lf_dl); r_ver.pack(fill="x", padx=10, pady=(8,4))
         ttk.Label(r_ver, text="MCバージョン:").pack(side="left")
         self._search_ver_cb = ttk.Combobox(r_ver, textvariable=self.search_version,
                                             values=MC_VERSIONS_FALLBACK, width=11, state="readonly")
         self._search_ver_cb.pack(side="left", padx=(4,4))
         self._search_ver_status = tk.Label(r_ver, text="🔄",
                                             fg=t["YEL"], bg=t["BG"], font=("Yu Gothic UI",8))
-        self._search_ver_status.pack(side="left")
+        self._search_ver_status.pack(side="left", padx=(0,14))
         self._tw(self._search_tk_widgets, (self._search_ver_status, "YEL", "fg"))
         self._tw(self._search_tk_widgets, (self._search_ver_status, "BG",  "bg"))
 
-        r_ldr = ttk.Frame(lf_dl); r_ldr.pack(fill="x", padx=10, pady=(2,4))
-        ttk.Label(r_ldr, text="Mod Loader:").pack(side="left")
-        self._search_loader_cb = ttk.Combobox(r_ldr, textvariable=self.search_loader,
+        ttk.Label(r_ver, text="Mod Loader:").pack(side="left")
+        self._search_loader_cb = ttk.Combobox(r_ver, textvariable=self.search_loader,
                                                values=LOADERS, width=11, state="readonly")
         self._search_loader_cb.pack(side="left", padx=(4,0))
 
