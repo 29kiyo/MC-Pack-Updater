@@ -1258,10 +1258,9 @@ class App(tk.Tk):
         lf_warn = ttk.LabelFrame(bot_row, text="⚠  注意")
         lf_warn.grid(row=0, column=1, sticky="nsew")
         warn_msg = (
-            "ここではMod名（またはID）を直接指定してModrinth / CurseForgeから\n"
-            "ダウンロードします。名前が完全一致しない場合、意図しないModが\n"
-            "DLされることがあります。前提Modは自動取得しますが、バージョン・\n"
-            "Loaderの互換性は保証されません。\n"
+            "ここではMod名（またはID）を直接指定してModrinth / CurseForgeからダウンロードします。"
+            "名前が完全一致しない場合、意図しないModがDLされることがあります。"
+            "前提Modは自動取得しますが、バージョン・Loaderの互換性は保証されません。"
             "必ずバックアップを取ってから使用してください。"
         )
         self._search_warn_label = tk.Label(

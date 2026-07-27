@@ -640,9 +640,9 @@ class PluginUpdaterApp(ttk.Frame):
         lf_warn = ttk.LabelFrame(f, text="⚠  注意")
         lf_warn.pack(fill="x", **PAD)
         warn_msg = (
-            "ここではプラグイン名（またはModrinthスラッグ）を直接指定してModrinthから\n"
-            "ダウンロードします。名前が完全一致しない場合、意図しないプラグインがDLされることがあります。\n"
-            "Plugin Loaderとの互換性は保証されません。\n"
+            "ここではプラグイン名（またはModrinthスラッグ）を直接指定してModrinthからダウンロードします。"
+            "名前が完全一致しない場合、意図しないプラグインがDLされることがあります。"
+            "Plugin Loaderとの互換性は保証されません。"
             "必ずバックアップを取ってから使用してください。"
         )
         warn_lbl = tk.Label(lf_warn, text=warn_msg,
