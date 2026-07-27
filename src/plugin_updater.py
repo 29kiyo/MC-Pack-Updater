@@ -217,16 +217,47 @@ def mr_best_file(vo):
             break
     return du, df
 
-def find_plugin(name, log_cb, ver_id=None, loaders=None):
+# ── リクエストキャッシュ（並列処理下でも安全。詳細は mod_updater.py 参照） ──
+class RequestCache:
+    def __init__(self):
+        self.project_lookup = {}
+        self.version_lookup = {}
+        self.lock = threading.Lock()
+
+def cached_search_plugin(cache, name):
+    if cache is None:
+        return mr_search_plugin(name)
+    key = name.lower()
+    with cache.lock:
+        if key in cache.project_lookup:
+            return cache.project_lookup[key]
+    result = mr_search_plugin(name)
+    with cache.lock:
+        cache.project_lookup[key] = result
+    return result
+
+def cached_get_plugin_versions(cache, pid, loaders=None):
+    if cache is None:
+        return mr_get_plugin_versions(pid, loaders)
+    key = f"{pid}|{','.join(sorted(loaders or []))}"
+    with cache.lock:
+        if key in cache.version_lookup:
+            return cache.version_lookup[key]
+    result = mr_get_plugin_versions(pid, loaders)
+    with cache.lock:
+        cache.version_lookup[key] = result
+    return result
+
+def find_plugin(name, log_cb, ver_id=None, loaders=None, cache=None):
     try:
-        pid = mr_search_plugin(name)
+        pid = cached_search_plugin(cache, name)
         if not pid:
             log_cb("  Modrinth: 見つからず", "warn")
             return None, None, None
         if ver_id:
             vs = [http_get(f"{MODRINTH_API}/version/{ver_id}")]
         else:
-            vs = mr_get_plugin_versions(pid, loaders)
+            vs = cached_get_plugin_versions(cache, pid, loaders)
         if not vs:
             log_cb("  Modrinth: 対応バージョンなし", "warn")
             return None, None, None
@@ -997,6 +1028,7 @@ class PluginUpdaterApp(ttk.Frame):
     def _psearch_worker(self, items, out_dir, loaders, loader_name):
         auto_deps = self._psearch_auto_deps.get()
         done_deps = set()
+        req_cache = RequestCache()
         ok_list   = []
         fail_list = []
         deps_lock = threading.Lock()
@@ -1012,7 +1044,7 @@ class PluginUpdaterApp(ttk.Frame):
             self._psearch_set_status(f"{idx+1}/{len(items)}: {name[:24]}")
             self._psearch_log(f"\n── {name} ──","info")
             def _log(msg, tag=""): self._psearch_log(msg, tag)
-            dl_url, dl_fname, pid = find_plugin(name, _log, ver_id, loaders)
+            dl_url, dl_fname, pid = find_plugin(name, _log, ver_id, loaders, cache=req_cache)
             if dl_url and dl_fname:
                 dest = os.path.join(out_dir, dl_fname)
                 try:
@@ -1028,7 +1060,7 @@ class PluginUpdaterApp(ttk.Frame):
                             with deps_lock:
                                 if not dep_name or dep_name in done_deps: continue
                                 done_deps.add(dep_name)
-                            du, df, _ = find_plugin(dep_name, _log, loaders=loaders)
+                            du, df, _ = find_plugin(dep_name, _log, loaders=loaders, cache=req_cache)
                             if du and df and not os.path.exists(os.path.join(out_dir,df)):
                                 download_file(du, os.path.join(out_dir,df))
                                 self._psearch_log(f"  🔗 前提DL: {df}","ok")
@@ -1590,6 +1622,7 @@ class PluginUpdaterApp(ttk.Frame):
         deps_lock = threading.Lock()
         progress_lock = threading.Lock()
         progress_done = [0]
+        req_cache = RequestCache()
 
         def _process_plugin(idx, plugin):
             if self._cancel_flag:
@@ -1602,7 +1635,7 @@ class PluginUpdaterApp(ttk.Frame):
 
             def _log(msg, tag=""): self._log(msg, tag)
 
-            dl_url, dl_fname, pid = find_plugin(name, _log, ver_id, loaders)
+            dl_url, dl_fname, pid = find_plugin(name, _log, ver_id, loaders, cache=req_cache)
 
             if dl_url and dl_fname:
                 actual_dir  = _resolve_out(plugin["filename"])
@@ -1622,7 +1655,7 @@ class PluginUpdaterApp(ttk.Frame):
                                 self._log(f"  🔗 前提プラグイン既存: {dep_name}", "ok")
                                 continue
                             self._log(f"  🔗 前提プラグイン DL: {dep_name}", "info")
-                            du, df, _ = find_plugin(dep_name, _log, loaders=loaders)
+                            du, df, _ = find_plugin(dep_name, _log, loaders=loaders, cache=req_cache)
                             if du and df and not os.path.exists(os.path.join(actual_dir, df)):
                                 self._do_download(du, os.path.join(actual_dir, df), dep_name, None, False, do_del_fail, loader_name)
                                 ok_list.append(f"[前提] {dep_name}")

@@ -188,6 +188,41 @@ def mr_best_file(version_obj):
             if fi.get("primary"): break
     return du, df
 
+# ── リクエストキャッシュ ──────────────────────────────────────
+# 1回の実行内で同一プロジェクト/バージョンへの問い合わせが重複した場合に
+# （同じMod名の重複エントリ・複数Modが共有する前提Mod等）実際のAPI
+# リクエストを再利用して減らす。並列処理（ThreadPoolExecutor）下でも
+# 安全なようロックで保護する。
+class RequestCache:
+    def __init__(self):
+        self.project_lookup = {}
+        self.version_lookup = {}
+        self.lock = threading.Lock()
+
+def cached_find_project(cache, sha1, mod_id, name, mr_type):
+    if cache is None:
+        return mr_find_project(sha1, mod_id, name, mr_type)
+    key = f"{sha1 or ''}|{mod_id}|{name.lower()}|{mr_type}"
+    with cache.lock:
+        if key in cache.project_lookup:
+            return cache.project_lookup[key]
+    result = mr_find_project(sha1, mod_id, name, mr_type)
+    with cache.lock:
+        cache.project_lookup[key] = result
+    return result
+
+def cached_get_versions(cache, pid, mc_ver, loader, mr_type=MR_MOD):
+    if cache is None:
+        return mr_get_versions(pid, mc_ver, loader, mr_type)
+    key = f"{pid}|{mc_ver}|{loader}|{mr_type}"
+    with cache.lock:
+        if key in cache.version_lookup:
+            return cache.version_lookup[key]
+    result = mr_get_versions(pid, mc_ver, loader, mr_type)
+    with cache.lock:
+        cache.version_lookup[key] = result
+    return result
+
 # ── CurseForge API ────────────────────────────────────────────
 def _cf_req(url, api_key):
     req = urllib.request.Request(url)
@@ -222,12 +257,13 @@ def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key, mr_type, cf_c
     do_mr = mode in (DL_BOTH, DL_CF_FIRST, DL_MR)
     do_cf = mode in (DL_BOTH, DL_CF_FIRST, DL_CF)
     dl_url = dl_fname = source = version_obj = None
+    cache = kwargs.get("cache")
 
     def _try_mr():
         nonlocal dl_url, dl_fname, source, version_obj
         try:
             sha1 = sha1_file(path) if path and os.path.exists(path) else None
-            pid  = mr_find_project(sha1, mod_id, name, mr_type)
+            pid  = cached_find_project(cache, sha1, mod_id, name, mr_type)
             if not pid: log_cb("  Modrinth: 見つからず","warn"); return
             # バージョンオーバーライドがある場合はそのバージョンを直接取得
             ver_override = kwargs.get("ver_override")
@@ -236,7 +272,7 @@ def find_dl_info(name, mod_id, path, mc_ver, loader, mode, cf_key, mr_type, cf_c
                 vs = [v_data]
                 log_cb("  Modrinth: 指定バージョンを使用", "info")
             else:
-                vs = mr_get_versions(pid, mc_ver, loader, mr_type)
+                vs = cached_get_versions(cache, pid, mc_ver, loader, mr_type)
             if not vs: log_cb(f"  Modrinth: {mc_ver} 対応なし","warn"); return
             version_obj = vs[0]
             dl_url, dl_fname = mr_best_file(vs[0]); source = "Modrinth"
@@ -496,7 +532,8 @@ class App(tk.Tk):
             self._icon_path = ip if os.path.exists(ip) else None
             if self._icon_path: self.iconbitmap(default=self._icon_path)
         except Exception: self._icon_path = None
-        self.geometry("1150x780"); self.configure(bg=BG); self.resizable(True, True)
+        self.geometry("1350x780"); self.configure(bg=BG); self.resizable(True, True)
+        self.minsize(1150, 700)
 
         cfg = load_config()
         self.target_version = tk.StringVar(value=cfg.get("target_version","1.21.4"))
@@ -1631,6 +1668,7 @@ class App(tk.Tk):
         auto_deps = self.search_auto_deps.get()
         strict    = self.search_strict_deps.get()
         done_deps = set()
+        req_cache = RequestCache()
         ok_list   = []
         fail_list = []
 
@@ -1653,7 +1691,7 @@ class App(tk.Tk):
                 name, "", None,
                 mc_ver, loader, mode, cf_key,
                 mr_type, cf_class, _log,
-                ver_override=ver_override)
+                ver_override=ver_override, cache=req_cache)
 
             if dl_url and dl_fname:
                 dest = os.path.join(out_dir, dl_fname)
@@ -1677,7 +1715,7 @@ class App(tk.Tk):
                                     v_data = http_get(f"{MODRINTH_API}/version/{dep_vid}")
                                     du, df = mr_best_file(v_data)
                                 else:
-                                    vs = mr_get_versions(dep_pid, mc_ver, loader)
+                                    vs = cached_get_versions(req_cache, dep_pid, mc_ver, loader)
                                     if vs: du, df = mr_best_file(vs[0])
                                 if du and df:
                                     ddest = os.path.join(out_dir, df)
@@ -2158,6 +2196,7 @@ class App(tk.Tk):
         backup_on    = self.backup_mode.get()
         backup_base  = self.backup_dir.get().strip()
         done_deps    = set()
+        req_cache    = RequestCache()
         results      = {"mod":{"ok":[],"fail":[]},"rp":{"ok":[],"fail":[]},"shader":{"ok":[],"fail":[]}}
 
         # バックアップモード時: 今回の実行で1つの親フォルダを共有する
@@ -2215,7 +2254,7 @@ class App(tk.Tk):
             dl_url, dl_fname, source, version_obj = find_dl_info(
                 name, item.get("mod_id",""), item.get("path"),
                 mc_ver, loader, mode, cf_key, mr_type, cf_class, _log,
-                ver_override=item.get("_ver_override"))
+                ver_override=item.get("_ver_override"), cache=req_cache)
 
             if dl_url and dl_fname:
                 actual_dir  = _resolve_out_dir(key, out_dir)
@@ -2256,7 +2295,7 @@ class App(tk.Tk):
                                                     break
                                         except Exception: pass  # 依存関係解決の失敗は後続処理に影響しないため無視
                                 else:
-                                    vs = mr_get_versions(dep_pid, mc_ver, loader)
+                                    vs = cached_get_versions(req_cache, dep_pid, mc_ver, loader)
                                     if vs: du, df = mr_best_file(vs[0])
                                 if du and df:
                                     ddest = os.path.join(actual_dir, df)
