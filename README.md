@@ -9,6 +9,8 @@
 ![Platform](https://img.shields.io/badge/platform-Windows-blue?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.11-blue?style=flat-square)
 
+[TypeScript版](https://github.com/29kiyo/Mc-Pack-Updater-TypeScript-Ver)
+
 <table><tr>
 <td><img src="assets/lightmode.png" alt="ライトモード" width="100%"></td>
 <td><img src="assets/darkmode.png" alt="ダークモード" width="100%"></td>
