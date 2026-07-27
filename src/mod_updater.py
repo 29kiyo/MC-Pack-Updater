@@ -76,6 +76,14 @@ def http_get(url, headers=None):
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode())
 
+def http_post_json(url, body, headers=None):
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method="POST", headers=headers or {})
+    req.add_header("User-Agent", "MC-Pack-Updater/6.0")
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read().decode())
+
 def download_file(url, dest, progress_cb=None):
     req = urllib.request.Request(url)
     req.add_header("User-Agent", "MC-Pack-Updater/6.0")
@@ -174,6 +182,31 @@ def mr_get_versions(pid, mc_ver, loader, mr_type=MR_MOD):
         if mr_type == MR_MOD: p["loaders"] = json.dumps([loader])
         return http_get(f"{MODRINTH_API}/project/{pid}/version?{urllib.parse.urlencode(p)}")
     except Exception: return []
+
+# ── バルクバージョン解決（POST /version_files/update） ──────────
+# ローカルに既存ファイルがあるModのsha1ハッシュをまとめて送り、各ハッシュに
+# 対応する「対象MCバージョン・Loaderでの最新バージョン」を1リクエストで
+# 一括取得する。N個のModを従来の N×2 リクエストではなく実質1リクエストで
+# 解決できる（ヒットしなかった分だけ個別検索にフォールバック）。
+_BULK_CHUNK_SIZE = 200  # Modrinth側の上限は非公開のため安全マージンを取って分割
+
+def mr_bulk_latest_versions_by_hash(hashes, loader, mc_ver):
+    result = {}
+    if not hashes:
+        return result
+    for i in range(0, len(hashes), _BULK_CHUNK_SIZE):
+        chunk = hashes[i:i+_BULK_CHUNK_SIZE]
+        try:
+            data = http_post_json(f"{MODRINTH_API}/version_files/update", {
+                "hashes": chunk,
+                "algorithm": "sha1",
+                "loaders": [loader],
+                "game_versions": [mc_ver],
+            })
+            result.update(data or {})
+        except Exception:
+            pass  # このチャンクが失敗しても該当ハッシュは呼び出し元で個別検索にフォールバックされる
+    return result
 
 def mr_get_deps(version_obj):
     return [(d.get("project_id"), d.get("version_id"))
@@ -2241,6 +2274,33 @@ class App(tk.Tk):
         progress_lock = threading.Lock()
         progress_done = [0]
 
+        # ── バルク事前解決 ──────────────────────────────────────
+        # ローカルに既存ファイルがあるModタスクはハッシュで一括問い合わせできる。
+        # 1回のAPI呼び出しで全Modを解決できるため、後段の個別 find_dl_info
+        # 呼び出し（1件あたり最大2〜3リクエスト）を丸ごと省略できる。
+        do_mr = mode in (DL_BOTH, DL_CF_FIRST, DL_MR)
+        bulk_version_by_filename = {}
+        if do_mr:
+            hash_to_filename = {}
+            for item, out_dir, mr_type, cf_class in tasks:
+                if mr_type != MR_MOD or item.get("_ver_override"):
+                    continue
+                p = item.get("path")
+                if not p or not os.path.exists(p):
+                    continue
+                try:
+                    hash_to_filename[sha1_file(p)] = item["filename"]
+                except Exception:
+                    pass  # ハッシュ計算失敗時は個別検索にフォールバック
+            if hash_to_filename:
+                self._log(f"🚀 バルク解決: {len(hash_to_filename)} 件のModを1リクエストで問い合わせ中...", "info", "mod")
+                bulk_result = mr_bulk_latest_versions_by_hash(list(hash_to_filename.keys()), loader, mc_ver)
+                for h, filename in hash_to_filename.items():
+                    vo = bulk_result.get(h)
+                    if vo:
+                        bulk_version_by_filename[filename] = vo
+                self._log(f"✅ バルク解決: {len(bulk_version_by_filename)}/{len(hash_to_filename)} 件が即座に見つかりました（残りは個別検索）", "ok", "mod")
+
         def _process_task(idx, item, out_dir, mr_type, cf_class):
             if self._cancel_flag:
                 return
@@ -2251,10 +2311,16 @@ class App(tk.Tk):
             self._log(f"\n── {name} ──","info",key)
             def _log(msg, tag="", _k=key): self._log(msg, tag, _k)
 
-            dl_url, dl_fname, source, version_obj = find_dl_info(
-                name, item.get("mod_id",""), item.get("path"),
-                mc_ver, loader, mode, cf_key, mr_type, cf_class, _log,
-                ver_override=item.get("_ver_override"), cache=req_cache)
+            bulk_vo = bulk_version_by_filename.get(item["filename"])
+            if bulk_vo:
+                dl_url, dl_fname = mr_best_file(bulk_vo)
+                source, version_obj = "Modrinth", bulk_vo
+                _log(f"  ✓ Modrinth（一括解決）: {dl_fname}", "ok")
+            else:
+                dl_url, dl_fname, source, version_obj = find_dl_info(
+                    name, item.get("mod_id",""), item.get("path"),
+                    mc_ver, loader, mode, cf_key, mr_type, cf_class, _log,
+                    ver_override=item.get("_ver_override"), cache=req_cache)
 
             if dl_url and dl_fname:
                 actual_dir  = _resolve_out_dir(key, out_dir)
