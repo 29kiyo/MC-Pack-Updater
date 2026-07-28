@@ -604,17 +604,16 @@ class App(tk.Tk):
         _apply_theme_globals(self._theme)
 
         self._apply_style(); self._build_ui(); self._disable_combobox_wheel()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        threading.Thread(target=self._fetch_versions_bg, daemon=True).start()
 
     def _t(self):
         """現在テーマ辞書を返す"""
         return THEMES[self._theme]
 
-    def _tw(self, wlist, widget, *pairs):
-        """(color_key, attr) のペアを wlist に一括登録するヘルパー"""
-        for color_key, attr in pairs:
-            wlist.append((widget, color_key, attr))
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
-        threading.Thread(target=self._fetch_versions_bg, daemon=True).start()
+    def _tw(self, wlist, pair):
+        """(widget, color_key, attr) のタプルを wlist に登録するヘルパー"""
+        wlist.append(pair)
 
     def _apply_style(self):
         t = self._t()
@@ -768,6 +767,8 @@ class App(tk.Tk):
             bg=t["BG"], fg=t["YEL"], font=("Yu Gothic UI", 8), anchor="w", justify="left"
         )
         conc_note.pack(fill="x", padx=10, pady=(0,8))
+        self._tw(self._search_tk_widgets, (conc_note, "YEL", "fg"))
+        self._tw(self._search_tk_widgets, (conc_note, "BG",  "bg"))
 
         # トースト通知
         lf2 = ttk.LabelFrame(f, text="🔔  通知"); lf2.pack(fill="x", pady=(0,10))
